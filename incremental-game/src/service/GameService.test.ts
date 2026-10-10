@@ -27,6 +27,8 @@ describe('GameService', () => {
         { type: 'upgradeMiner', upgrade: 'count' },
         { type: 'upgradeMiner', upgrade: 'production' },
         { type: 'upgradeMining', upgrade: 'unlock' },
+        { type: 'unlockDesigner' },
+        { type: 'skipLevelOne' },
         { type: 'claimGift' },
       ],
     })
@@ -46,6 +48,31 @@ describe('GameService', () => {
     expect(service.act({ type: 'upgradeFighter', upgrade: 'speed' })).toMatchObject({ ok: false, reason: 'unknown-action' })
     expect(service.act({ type: 'upgradeMiner' })).toMatchObject({ ok: false, reason: 'unknown-action' })
     expect(service.act({ type: 'anything' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+  })
+
+  it('retires miner and mining actions once automine is bought', () => {
+    const service = new GameService()
+    service.newGame()
+    service.act({ type: 'claimGift' })
+    service.act({ type: 'claimGift' })
+    expect(service.act({ type: 'upgradeMining', upgrade: 'automine' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    expect(service.act({ type: 'upgradeMining', upgrade: 'unlock' })).toMatchObject({ ok: true })
+    const offered = service.options()
+    expect(offered.ok).toBe(true)
+    if (!offered.ok) return
+    expect(offered.data).toContainEqual({ type: 'upgradeMining', upgrade: 'automine' })
+    expect(service.act({ type: 'upgradeMining', upgrade: 'automine' })).toMatchObject({ ok: true })
+    const after = service.options()
+    expect(after.ok).toBe(true)
+    if (!after.ok) return
+    expect(after.data.some(action => action.type === 'upgradeMiner' || action.type === 'upgradeMining')).toBe(false)
+    expect(service.act({ type: 'upgradeMiner', upgrade: 'speed' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    const game = service.getGame()
+    expect(game?.exportState().asteroids).toEqual([])
+    expect(game?.exportState().ships.filter(ship => ship.side === 'player')).toEqual([])
+    const before = game?.scene().money ?? 0
+    service.advance(1_000)
+    expect(service.getGame()?.scene().money).toBe(before + 200)
   })
 
   it('rejects a save from another format', () => {

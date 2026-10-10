@@ -3,6 +3,9 @@ import { cellKey } from '../motion/separate'
 import type { ShipMode, ShipState } from './types'
 import type { MinerWorld } from './world'
 
+/** Shot and ship target for the enemy base. The base has no health, so a hit does nothing. */
+export const BASE_TARGET = 'base'
+
 /** Rival miners hunt once the tractor beam is on. The fighter always hunts rivals. */
 export function fights(ship: ShipState, world: MinerWorld): boolean {
   return ship.role === 'fighter' || (ship.side === 'rival' && world.mining.hasTractor())
@@ -13,6 +16,7 @@ export function fights(ship: ShipState, world: MinerWorld): boolean {
  * still exists, or flying to / shooting an asteroid that still exists. Otherwise
  * it is sent to the nearest asteroid. With nothing left to mine or collect, it waits where it is.
  * A ship at war keeps its current target, or picks the nearest enemy.
+ * A ship at war with no enemy left flies to the opposing base and shoots it.
  */
 export function ensureDuty(ship: ShipState, ships: ShipState[], world: MinerWorld): void {
   if (fights(ship, world)) {
@@ -46,15 +50,21 @@ export function assignJob(ship: ShipState, world: MinerWorld): void {
   engageNearest(ship, world)
 }
 
-/** Fly at the nearest enemy and shoot once it is in weapon range. */
+/** Fly at the nearest enemy and shoot once it is in weapon range. With none left, shell the other base. */
 export function huntNearest(ship: ShipState, ships: ShipState[], world: MinerWorld): void {
   const enemy = nearestEnemy(ship, ships)
+  const range = world.config.ships.weaponRange
   if (!enemy) {
-    order(ship, 'wait', null)
+    const base = opposingBase(ship, world)
+    order(ship, inWeaponRange(ship, base, range) ? 'attack' : 'hunt', BASE_TARGET)
     return
   }
-  const range = world.config.ships.weaponRange
   order(ship, inWeaponRange(ship, enemy, range) ? 'attack' : 'hunt', enemy.id)
+}
+
+/** The base on the other side. It is a place to shoot, not a ship. */
+export function opposingBase(ship: ShipState, world: MinerWorld): { x: number; y: number } {
+  return world.layout.home(ship.side === 'player' ? 'rival' : 'player')
 }
 
 function holdTarget(ship: ShipState, ships: ShipState[], world: MinerWorld): void {

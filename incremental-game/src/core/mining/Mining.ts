@@ -8,6 +8,7 @@ export interface MiningStats {
   golden: { owned: boolean; cost: number | null }
   tractorBeam: { owned: boolean; cost: number | null }
   unlock: { owned: boolean; cost: number | null }
+  automine: { owned: boolean; cost: number | null; perSecond: number }
 }
 
 /** Player purchases that change the shared asteroid field. */
@@ -16,20 +17,22 @@ export class MiningUpgrades {
   private beam: boolean
   private golden: boolean
   private unlocked: boolean
+  private automine: boolean
 
-  private constructor(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean) {
+  private constructor(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean, automine: boolean) {
     this.purchased = purchased
     this.beam = beam
     this.golden = golden
     this.unlocked = unlocked
+    this.automine = automine
   }
 
   static create(): MiningUpgrades {
-    return new MiningUpgrades(blankMiningLevels(), false, false, false)
+    return new MiningUpgrades(blankMiningLevels(), false, false, false, false)
   }
 
-  static restore(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean): MiningUpgrades {
-    return new MiningUpgrades({ ...purchased }, beam, golden, unlocked)
+  static restore(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean, automine: boolean): MiningUpgrades {
+    return new MiningUpgrades({ ...purchased }, beam, golden, unlocked, automine)
   }
 
   levels(): MiningLevels {
@@ -74,6 +77,11 @@ export class MiningUpgrades {
         owned: this.unlocked,
         cost: this.unlocked ? null : config.mining.unlock.cost,
       },
+      automine: {
+        owned: this.automine,
+        cost: this.automine ? null : config.mining.automine.cost,
+        perSecond: config.mining.automine.perSecond,
+      },
     }
   }
 
@@ -105,6 +113,23 @@ export class MiningUpgrades {
 
   ownUnlock(): void {
     this.unlocked = true
+  }
+
+  hasAutomine(): boolean {
+    return this.automine
+  }
+
+  autominePrice(config: GameConfig): number {
+    return config.mining.automine.cost
+  }
+
+  /** Dollars earned each second once automine is owned. */
+  automineIncome(config: GameConfig): number {
+    return config.mining.automine.perSecond
+  }
+
+  ownAutomine(): void {
+    this.automine = true
   }
 
   hasTractor(): boolean {

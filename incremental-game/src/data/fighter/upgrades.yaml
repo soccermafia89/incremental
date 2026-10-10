@@ -21,15 +21,17 @@ damage:
   step: 5
   max: 20
   cost: 4
-# How many fighters are kept. Starts at none. The first buy builds one, and losses are replaced.
+# How many fighters are kept. Starts at none. The first buy is free and builds one.
+# The next buy costs `cost`, then the price doubles. Losses are replaced.
 count:
   start: 0
   step: 1
   max: 5
   cost: 20
 # Units built each second on the fighter bar. Four times the miner production cost.
+# Each purchase makes the build take 70% as long as the previous one. `max` is still the last rate step.
 production:
   start: 1
   step: 1
-  max: 5
+  max: 8
   cost: 4

@@ -8,7 +8,7 @@ import type { MapState } from '../game/state'
  * Version of the save format. Bump whenever the snapshot shape changes so old
  * saves are rejected rather than loaded into a mismatched model.
  */
-export const SAVE_FORMAT_VERSION = 24
+export const SAVE_FORMAT_VERSION = 27
 
 /**
  * Plain-data mirror of the live game, safe to JSON.stringify.

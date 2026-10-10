@@ -2,7 +2,8 @@ import type { FighterUpgradeId } from '../../data/fighter/upgrades'
 import type { FighterStats } from '../../core/fighter/Upgrades'
 
 function offer(value: number, cost: number | null): string {
-  return cost === null ? `${value} · Max` : `${value} · $${cost}`
+  const shown = Number.isInteger(value) ? String(value) : value.toFixed(2)
+  return cost === null ? `${shown} · Max` : `${shown} · $${cost}`
 }
 
 const ROWS: { id: FighterUpgradeId; label: string }[] = [

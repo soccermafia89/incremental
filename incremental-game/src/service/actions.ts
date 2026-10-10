@@ -5,4 +5,9 @@
 export interface GameAction {
   type: string
   upgrade?: string
+  component?: string
+  x?: number
+  y?: number
+  rotation?: number
+  id?: string
 }

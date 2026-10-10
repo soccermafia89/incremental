@@ -1,6 +1,6 @@
 import type { GameConfig } from '../../data/GameConfig'
 import { loadGameConfig } from '../../data/GameConfig'
-import { mapping, requireNumber } from '../../data/number'
+import { mapping, requireInt, requireNumber } from '../../data/number'
 import { ENEMY_FIELDS, ENEMY_UPGRADE_IDS } from '../../data/enemy/upgrades'
 import { FIGHTER_FIELDS, FIGHTER_UPGRADE_IDS } from '../../data/fighter/upgrades'
 import { MINING_FIELDS, MINING_IDS } from '../../data/mining'
@@ -11,6 +11,8 @@ import { GameImpl } from '../game/Game'
 import { SHIP_MODES, SHIP_ROLES, type ShipMode, type ShipRole, type ShipState, type Side } from '../miner'
 import type { OreState } from '../ore/OreField'
 import type { ShotState } from '../shot/Shot'
+import { isComponentId } from '../../data/designer'
+import { isRotation, type PlacedPart } from '../designer/Design'
 import { SAVE_FORMAT_VERSION } from './GameSnapshot'
 
 export class GameDeserializer {
@@ -41,6 +43,10 @@ export class GameDeserializer {
       tractorBeam: flag(row.tractorBeam, 'tractorBeam'),
       golden: flag(row.golden, 'golden'),
       miningUnlocked: flag(row.miningUnlocked, 'miningUnlocked'),
+      automine: flag(row.automine, 'automine'),
+      shipDesigner: flag(row.shipDesigner, 'shipDesigner'),
+      parts: list(row.parts, 'parts').map((item, index) => placedPart(item, index)),
+      nextPartId: positiveInt(row.nextPartId, 'nextPartId'),
       pendingMiners: nonNegativeInt(row.pendingMiners, 'pendingMiners'),
       minerWork: count(row.minerWork, 'minerWork'),
       pendingFighters: nonNegativeInt(row.pendingFighters, 'pendingFighters'),
@@ -60,6 +66,24 @@ function nextIds(row: Record<string, unknown>): Pick<MapState, (typeof NEXT_IDS)
   const ids = {} as Pick<MapState, (typeof NEXT_IDS)[number]>
   for (const key of NEXT_IDS) ids[key] = positiveInt(row[key], key)
   return ids
+}
+
+function placedPart(raw: unknown, index: number): PlacedPart {
+  const label = `parts[${index}]`
+  const row = mapping(raw, label)
+  const component = text(row.component, `${label}.component`)
+  if (!isComponentId(component)) throw new Error(`${label}.component is invalid`)
+  const id = text(row.id, `${label}.id`)
+  if (!/^part-[1-9]\d*$/.test(id)) throw new Error(`${label}.id is invalid`)
+  const rotation = requireInt(row.rotation, `${label}.rotation`)
+  if (!isRotation(rotation)) throw new Error(`${label}.rotation is invalid`)
+  return {
+    id,
+    component,
+    x: requireInt(row.x, `${label}.x`),
+    y: requireInt(row.y, `${label}.y`),
+    rotation,
+  }
 }
 
 function asteroid(raw: unknown, index: number): AsteroidState {
@@ -100,6 +124,7 @@ function shot(raw: unknown, index: number): ShotState {
     ...shotTarget(row, label),
     side: side(row.side, `${label}.side`),
     damage: positiveInt(row.damage, `${label}.damage`),
+    cannon: flag(row.cannon, `${label}.cannon`),
   }
 }
 

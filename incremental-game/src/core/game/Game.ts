@@ -3,6 +3,7 @@ import { loadGameConfig } from '../../data/GameConfig'
 import type { EnemyUpgradeId } from '../../data/enemy/upgrades'
 import type { FighterUpgradeId } from '../../data/fighter/upgrades'
 import type { MiningPurchase } from '../../data/mining'
+import type { DesignResult } from '../designer/Design'
 import type { MinerUpgradeId, UpgradeResult } from '../miner'
 import { MapSim } from '../map/MapSim'
 import { Rng } from './rng'
@@ -44,6 +45,26 @@ export class GameImpl implements Game {
 
   claimGift(): void {
     this.map.claimGift()
+  }
+
+  skipLevelOne(): void {
+    this.map.skipLevelOne()
+  }
+
+  unlockDesigner(): UpgradeResult {
+    return this.map.unlockDesigner()
+  }
+
+  placeComponent(component: string, x: number, y: number, rotation: number): DesignResult {
+    return this.map.placeComponent(component, x, y, rotation)
+  }
+
+  removeComponent(id: string): DesignResult {
+    return this.map.removeComponent(id)
+  }
+
+  designPreview(component: string, x: number, y: number, rotation: number): { x: number; y: number }[] | null {
+    return this.map.designPreview(component, x, y, rotation)
   }
 
   advance(dtMs: number): void {

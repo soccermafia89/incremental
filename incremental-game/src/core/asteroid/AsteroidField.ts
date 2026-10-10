@@ -52,6 +52,11 @@ export class AsteroidField {
     this.place('golden', health, config.golden.max, config, roll)
   }
 
+  /** The field is gone. Ids already handed out stay spent. */
+  clear(): void {
+    this.asteroids = []
+  }
+
   /** Multiply every rock already on the field. Damage already taken stays in proportion. */
   scaleHealth(factor: number): void {
     for (const asteroid of this.asteroids) {

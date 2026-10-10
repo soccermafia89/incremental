@@ -191,8 +191,8 @@ describe('mining map', () => {
       money: 10,
       asteroids: [{ id: 'asteroid-1', x: 800, y: 325, health: 40, maxHealth: 40, kind: 'normal' }],
       ships: [
-        ship('player', 100, 325, 'engage', 'asteroid-1'),
-        ship('rival', 100, 340, 'engage', 'asteroid-1'),
+        ship('player', 400, 325, 'engage', 'asteroid-1'),
+        ship('rival', 400, 340, 'engage', 'asteroid-1'),
       ],
     }))
     expect(game.scene().miner.values.speed).toBe(10)
@@ -200,8 +200,8 @@ describe('mining map', () => {
     expect(game.scene().miner.values.speed).toBe(12)
     game.advance(1000)
     const ships = game.exportState().ships
-    expect(ships.find(miner => miner.side === 'player')?.x).toBeCloseTo(220, 0)
-    expect(ships.find(miner => miner.side === 'rival')?.x).toBeCloseTo(250, 0)
+    expect(ships.find(miner => miner.side === 'player')?.x).toBeCloseTo(520, 0)
+    expect(ships.find(miner => miner.side === 'rival')?.x).toBeCloseTo(550, 0)
   })
 
   it('fires only the player miner faster', () => {
@@ -212,8 +212,8 @@ describe('mining map', () => {
       money: 10,
       asteroids: [{ id: 'asteroid-1', x: 500, y: 325, health: 100, maxHealth: 100, kind: 'normal' }],
       ships: [
-        ship('player', 300, 325, 'shoot', 'asteroid-1'),
-        ship('rival', 300, 340, 'shoot', 'asteroid-1'),
+        ship('player', 450, 325, 'shoot', 'asteroid-1'),
+        ship('rival', 450, 340, 'shoot', 'asteroid-1'),
       ],
     }))
     game.upgradeMiner('fireRate')
@@ -246,11 +246,13 @@ describe('mining map', () => {
 
   it('launches a bought miner after a minute, one at a time', () => {
     const game = GameImpl.create(tuned({ ships: { speed: 0 }, bank: { startingMoney: 15 } }), 1)
+    expect(game.scene().miner.values.count).toBe(1)
     expect(game.upgradeMiner('count')).toBe('ok')
+    expect(game.scene().miner.values.count).toBe(2)
     expect(game.upgradeMiner('count')).toBe('ok')
+    expect(game.scene().miner.values.count).toBe(3)
     const players = () => game.exportState().ships.filter(miner => miner.side === 'player')
     expect(players()).toHaveLength(1)
-    expect(game.scene().miner.values.count).toBe(1)
     expect(game.scene().miner.costs.count).toBe(20)
     expect(game.scene().nextMiner?.progress).toBe(0)
     expect(game.scene().money).toBe(0)
@@ -259,13 +261,35 @@ describe('mining map', () => {
     expect(players()).toHaveLength(1)
     game.advance(30_000)
     expect(players()).toHaveLength(2)
-    expect(game.scene().miner.values.count).toBe(2)
+    expect(game.scene().miner.values.count).toBe(3)
     expect(game.scene().nextMiner?.progress).toBe(0)
     expect(game.exportState().ships.filter(miner => miner.side === 'rival')).toHaveLength(1)
     game.advance(60_000)
     expect(players()).toHaveLength(3)
     expect(game.scene().nextMiner).toBeNull()
     expect(game.exportState().ships.filter(miner => miner.side === 'rival')).toHaveLength(2)
+  })
+
+  it('builds another miner when one is destroyed and the count is not full', () => {
+    const game = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 5000, weaponRange: 500, shotIntervalMs: 10_000 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      money: 0,
+      tractorBeam: true,
+      asteroids: [],
+      ships: [
+        { ...ship('player', 400, 300, 'wait', null), health: 1, maxHealth: 1 },
+        ship('rival', 450, 300, 'attack', 'ship-1'),
+      ],
+    }))
+    expect(game.scene().miner.values.count).toBe(1)
+    game.advance(50)
+    const miners = () => game.exportState().ships.filter(miner => miner.side === 'player' && miner.role === 'miner')
+    expect(miners()).toHaveLength(0)
+    expect(game.exportState().pendingMiners).toBe(1)
+    expect(game.scene().miner.values.count).toBe(1)
+    expect(game.scene().nextMiner?.progress).toBe(0)
   })
 
   it('fills each build bar from its own production rate', () => {
@@ -295,12 +319,12 @@ describe('mining map', () => {
     const fighters = placed()
     expect(fighters.upgradeFighterStat('production')).toBe('ok')
     expect(fighters.scene().money).toBe(0)
-    expect(fighters.scene().fighter.values.production).toBe(2)
+    expect(fighters.scene().fighter.values.production).toBeCloseTo(10 / 7, 5)
     expect(fighters.scene().fighter.costs.production).toBe(2)
     fighters.advance(15_000)
-    expect(fighters.scene().nextFighter?.progress).toBeCloseTo(0.5, 5)
+    expect(fighters.scene().nextFighter?.progress).toBeCloseTo(15 / 42, 5)
     expect(fighters.scene().nextMiner?.progress).toBeCloseTo(0.25, 5)
-    fighters.advance(15_000)
+    fighters.advance(27_000)
     expect(fighters.exportState().pendingFighters).toBe(0)
     expect(fighters.exportState().pendingMiners).toBe(1)
     expect(fighters.upgradeFighterStat('production')).toBe('broke')
@@ -352,8 +376,8 @@ describe('mining map', () => {
         minerLevels: { ...blankLevels(), speed: speedLevel },
         asteroids: [{ id: 'asteroid-1', x: 900, y: 325, health: 40, maxHealth: 40, kind: 'normal' }],
         ships: [
-          ship('player', 100, 325, 'engage', 'asteroid-1'),
-          ship('rival', 100, 340, 'engage', 'asteroid-1'),
+          ship('player', 400, 325, 'engage', 'asteroid-1'),
+          ship('rival', 400, 340, 'engage', 'asteroid-1'),
         ],
       }))
       const before = game.exportState().ships.find(miner => miner.side === 'rival')?.x ?? 0
@@ -630,6 +654,137 @@ describe('mining map', () => {
     expect(game.exportState().ships.find(miner => miner.id === 'ship-1')?.health).toBe(12)
   })
 
+  it('has each base shoot the nearest enemy inside cannon range', () => {
+    const parked = (ships: MapState['ships'], cannon?: Partial<typeof config.cannon>) => GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0 },
+      asteroids: { spawnMs: 999_999 },
+      cannon,
+    }), fresh({ asteroids: [], ships }))
+    const inRange = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.range - 10, config.map.baseY, 'wait', null),
+    ], { shotSpeed: 0 })
+    inRange.advance(50)
+    const first = inRange.exportState().shots
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ side: 'player', damage: config.cannon.damage, shipId: 'ship-2', cannon: true })
+    inRange.advance(50)
+    expect(inRange.exportState().shots).toHaveLength(1)
+    inRange.advance(50)
+    expect(inRange.exportState().shots).toHaveLength(2)
+
+    const far = parked([
+      ship('rival', config.map.baseX + config.cannon.range + 1, config.map.baseY, 'wait', null),
+    ])
+    far.advance(1000)
+    expect(far.exportState().shots).toHaveLength(0)
+
+    const rivalGun = parked([
+      ship('player', config.map.rivalBaseX - 40, config.map.rivalBaseY, 'wait', null),
+      ship('rival', config.map.rivalBaseX, config.map.rivalBaseY, 'wait', null),
+    ], { shotSpeed: 0 })
+    rivalGun.advance(50)
+    expect(rivalGun.exportState().shots).toHaveLength(1)
+    expect(rivalGun.exportState().shots[0]).toMatchObject({ side: 'rival', damage: config.cannon.damage, shipId: 'ship-1' })
+
+    const killed = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 280 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+        ship('rival', config.map.baseX + 20, config.map.baseY, 'wait', null),
+      ],
+    }))
+    killed.advance(100)
+    expect(killed.exportState().ships.map(miner => miner.side)).toEqual(['player'])
+    expect(killed.scene().money).toBe(0)
+
+    const zapped = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + 200, config.map.baseY, 'wait', null),
+    ])
+    zapped.advance(50)
+    expect(zapped.exportState().ships.map(miner => miner.side)).toEqual(['player'])
+    expect(zapped.scene().money).toBe(0)
+    expect(zapped.scene().lasers[0]).toMatchObject({
+      x0: config.map.baseX,
+      y0: config.map.baseY,
+      x1: config.map.baseX + 200,
+      y1: config.map.baseY,
+      side: 'player',
+    })
+  })
+
+  it('sends a fighter to shoot the enemy base when no rivals are left', () => {
+    const alone = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 80, shotIntervalMs: 10_000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 1 },
+    }), fresh({
+      tractorBeam: true,
+      asteroids: [],
+      ships: [
+        { ...ship('player', config.map.rivalBaseX - 60, config.map.rivalBaseY, 'wait', null), role: 'fighter' },
+        ship('rival', config.map.rivalBaseX, config.map.rivalBaseY, 'wait', null),
+      ],
+    }))
+    alone.advance(100)
+    const busy = alone.exportState().ships.find(miner => miner.role === 'fighter')
+    expect(busy?.targetId).toBe('ship-2')
+    expect(alone.exportState().shots.every(shot => shot.asteroidId !== 'base')).toBe(true)
+
+    const shelling = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 80, shotIntervalMs: 10_000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 1 },
+    }), fresh({
+      tractorBeam: true,
+      asteroids: [],
+      ships: [
+        { ...ship('player', config.map.rivalBaseX - 60, config.map.rivalBaseY, 'wait', null), role: 'fighter' },
+      ],
+    }))
+    shelling.advance(100)
+    const fighter = shelling.exportState().ships.find(miner => miner.role === 'fighter')
+    expect(fighter?.mode).toBe('attack')
+    expect(fighter?.targetId).toBe('base')
+    const shot = shelling.exportState().shots[0]
+    expect(shot).toMatchObject({
+      side: 'player',
+      asteroidId: 'base',
+      shipId: null,
+      targetX: config.map.rivalBaseX,
+      targetY: config.map.rivalBaseY,
+      damage: config.fighterUpgrades.damage.start,
+    })
+    expect(shelling.scene().money).toBe(0)
+    expect(shelling.exportState().ships).toHaveLength(1)
+
+    const rival = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 80, shotIntervalMs: 10_000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 1 },
+    }), fresh({
+      tractorBeam: true,
+      asteroids: [],
+      ships: [ship('rival', config.map.baseX + 60, config.map.baseY, 'wait', null)],
+    }))
+    rival.advance(100)
+    const red = rival.exportState().ships[0]
+    expect(red?.mode).toBe('attack')
+    expect(red?.targetId).toBe('base')
+    expect(rival.exportState().shots[0]).toMatchObject({
+      side: 'rival',
+      asteroidId: 'base',
+      shipId: null,
+      targetX: config.map.baseX,
+      targetY: config.map.baseY,
+    })
+    expect(rival.scene().money).toBe(0)
+  })
+
   it('removes our ship when its health is gone and pays nothing', () => {
     const game = GameImpl.restore(tuned({
       ships: { speed: 0, shotSpeed: 5000, weaponRange: 500, shotIntervalMs: 10_000 },
@@ -660,12 +815,12 @@ describe('mining map', () => {
       asteroids: [],
       ships: [
         ship('player', 200, 300, 'wait', null),
-        { ...ship('rival', 200, 325, 'wait', null), health: 1, maxHealth: 1 },
+        { ...ship('rival', 450, 325, 'wait', null), health: 1, maxHealth: 1 },
       ],
     }))
     expect(game.scene().fighter.values.count).toBe(0)
     expect(game.upgradeFighterStat('count')).toBe('ok')
-    expect(game.exportState().money).toBe(0)
+    expect(game.exportState().money).toBe(1)
     expect(game.exportState().pendingFighters).toBe(1)
     expect(game.scene().nextFighter?.progress).toBe(0)
     expect(game.scene().fighter.values.count).toBe(1)
@@ -679,9 +834,9 @@ describe('mining map', () => {
     expect(fighter?.targetId).toBe('ship-2')
     expect(game.scene().nextFighter).toBeNull()
     expect(game.scene().miner.values.count).toBe(1)
-    game.advance(50)
+    game.advance(100)
     expect(game.exportState().ships.filter(miner => miner.side === 'rival')).toHaveLength(0)
-    expect(game.scene().money).toBe(100)
+    expect(game.scene().money).toBe(101)
   })
 
   it('replaces destroyed rival miners at their base once a minute, up to the fleet cap', () => {
@@ -790,20 +945,22 @@ describe('mining map', () => {
       asteroids: { spawnMs: 999_999 },
       fighter: { cost: 0, units: 1 },
     }), fresh({
-      money: 3,
+      money: 1,
       tractorBeam: true,
       asteroids: [],
       ships: [],
     }))
     expect(game.scene().fighter.values.count).toBe(0)
+    expect(game.scene().fighter.costs.count).toBe(0)
     expect(game.upgradeFighterStat('count')).toBe('ok')
-    expect(game.scene().money).toBe(2)
+    expect(game.scene().money).toBe(1)
     expect(game.scene().fighter.values.count).toBe(1)
+    expect(game.scene().fighter.costs.count).toBe(1)
     expect(game.exportState().pendingFighters).toBe(1)
     expect(game.upgradeFighterStat('count')).toBe('ok')
     expect(game.scene().money).toBe(0)
     expect(game.scene().fighter.values.count).toBe(2)
-    expect(game.scene().fighter.costs.count).toBe(4)
+    expect(game.scene().fighter.costs.count).toBe(2)
     expect(game.exportState().pendingFighters).toBe(2)
     game.advance(1000)
     expect(game.exportState().ships.filter(miner => miner.role === 'fighter')).toHaveLength(1)
@@ -831,12 +988,12 @@ describe('mining map', () => {
   })
 
   it('replaces a destroyed rival sooner after the enemy spawn rate is bought', () => {
-    const placed = () => GameImpl.restore(tuned({
+    const placed = (money = 1) => GameImpl.restore(tuned({
       ships: { speed: 0, shotSpeed: 5000, weaponRange: 500, shotIntervalMs: 10_000 },
       asteroids: { spawnMs: 999_999 },
       rival: { replenishMs: 1000 },
     }), fresh({
-      money: 1,
+      money,
       tractorBeam: true,
       rivalCap: 1,
       asteroids: [],
@@ -866,6 +1023,17 @@ describe('mining map', () => {
     expect(rivals(fast)).toHaveLength(0)
     fast.advance(50)
     expect(rivals(fast)).toHaveLength(1)
+
+    const again = placed(3)
+    expect(again.upgradeEnemy('spawnRate')).toBe('ok')
+    expect(again.upgradeEnemy('spawnRate')).toBe('ok')
+    expect(again.scene().enemy.values.spawnRate).toBe(4)
+    again.advance(50)
+    expect(rivals(again)).toHaveLength(0)
+    again.advance(150)
+    expect(rivals(again)).toHaveLength(0)
+    again.advance(50)
+    expect(rivals(again)).toHaveLength(1)
   })
 
   it('starts the rival cap at 1, then the first capacity buy sets it to 10 and later buys add 5', () => {
@@ -952,8 +1120,8 @@ describe('mining map', () => {
       tractorBeam: true,
       asteroids: [{ id: 'asteroid-1', x: 500, y: 325, health: 100, maxHealth: 100, kind: 'normal' }],
       ships: [
-        ship('player', 300, 325, 'shoot', 'asteroid-1'),
-        { ...ship('rival', 300, 340, 'shoot', 'asteroid-1'), health: 12, maxHealth: 20 },
+        ship('player', 450, 325, 'shoot', 'asteroid-1'),
+        { ...ship('rival', 450, 340, 'shoot', 'asteroid-1'), health: 12, maxHealth: 20 },
       ],
     }))
     expect(game.scene().enemy.values.health).toBe(20)
@@ -988,18 +1156,193 @@ describe('mining map', () => {
     expect(killing.scene().money).toBe(Math.round(100 * 1.3 ** 3))
   })
 
+  it('matches buying every miner and mining upgrade', () => {
+    const opened = () => GameImpl.create(tuned({
+      ships: { speed: 0 },
+      bank: { startingMoney: 100_000 },
+      upgrades: {
+        speed: { start: 10, step: 2, max: 14, cost: 1 },
+        damage: { start: 8, step: 1, max: 10, cost: 1 },
+        fireRate: { start: 1, step: 1, max: 3, cost: 1 },
+        carry: { start: 1, step: 1, max: 3, cost: 1 },
+        count: { start: 1, step: 1, max: 3, cost: 1 },
+        production: { start: 1, step: 1, max: 3, cost: 1 },
+      },
+      mining: {
+        ...config.mining,
+        size: { start: 1, step: 1, max: 3, cost: 1 },
+        spawnRate: { start: 1, step: 1, max: 3, cost: 1 },
+        goldenSpawnRate: { start: 1, step: 1, max: 3, cost: 1 },
+      },
+    }), 1)
+    const buyAll = (game: GameImpl) => {
+      for (const upgrade of ['speed', 'damage', 'fireRate', 'carry', 'count', 'production'] as const) {
+        while (game.upgradeMiner(upgrade) === 'ok') { /* every level */ }
+      }
+      while (game.upgradeMining('unlock') === 'ok') { /* once */ }
+      while (game.upgradeMining('size') === 'ok') { /* every level */ }
+      while (game.upgradeMining('spawnRate') === 'ok') { /* every level */ }
+      while (game.upgradeMining('golden') === 'ok') { /* once */ }
+      while (game.upgradeMining('goldenSpawnRate') === 'ok') { /* every level */ }
+      while (game.upgradeMining('tractorBeam') === 'ok') { /* once */ }
+    }
+    const bought = opened()
+    buyAll(bought)
+    const skipped = opened()
+    skipped.skipLevelOne()
+    const { money: boughtMoney, ...boughtState } = bought.exportState()
+    const { money: skippedMoney, ...skippedState } = skipped.exportState()
+    expect(skippedMoney).toBe(100_000)
+    expect(boughtMoney).toBeLessThan(skippedMoney)
+    expect(skippedState).toEqual(boughtState)
+
+    const partialBought = opened()
+    const partialSkipped = opened()
+    expect(partialBought.upgradeMining('unlock')).toBe('ok')
+    expect(partialSkipped.upgradeMining('unlock')).toBe('ok')
+    expect(partialBought.upgradeMining('size')).toBe('ok')
+    expect(partialSkipped.upgradeMining('size')).toBe('ok')
+    buyAll(partialBought)
+    partialSkipped.skipLevelOne()
+    const { money: partialBoughtMoney, ...partialBoughtState } = partialBought.exportState()
+    const { money: partialSkippedMoney, ...partialSkippedState } = partialSkipped.exportState()
+    expect(partialSkippedMoney).toBeGreaterThan(partialBoughtMoney)
+    expect(partialSkippedState).toEqual(partialBoughtState)
+  })
+
+  it('maxes every miner and mining upgrade', () => {
+    const game = GameImpl.create(tuned({ ships: { speed: 0 } }), 1)
+    const rivals = () => game.exportState().ships.filter(miner => miner.side === 'rival')
+    const sizeSteps = (config.mining.size.max - config.mining.size.start) / config.mining.size.step
+    expect(game.scene().money).toBe(0)
+    game.skipLevelOne()
+    expect(game.scene().money).toBe(0)
+    expect(game.scene().miner.values.speed).toBe(config.upgrades.speed.max)
+    expect(game.scene().miner.costs.speed).toBeNull()
+    expect(game.scene().miner.values.damage).toBe(config.upgrades.damage.max)
+    expect(game.scene().miner.values.fireRate).toBe(config.upgrades.fireRate.max)
+    expect(game.scene().miner.values.carry).toBe(config.upgrades.carry.max)
+    expect(game.scene().miner.values.count).toBe(config.upgrades.count.max)
+    expect(game.scene().miner.costs.count).toBeNull()
+    expect(game.scene().miner.values.production).toBe(config.upgrades.production.max)
+    expect(game.exportState().pendingMiners).toBe(config.upgrades.count.max - 1)
+    expect(game.exportState().miningUnlocked).toBe(true)
+    expect(game.exportState().automine).toBe(false)
+    expect(game.exportState().shipDesigner).toBe(false)
+    expect(game.exportState().golden).toBe(true)
+    expect(game.exportState().tractorBeam).toBe(true)
+    expect(game.scene().mining.values.size).toBe(config.mining.size.max)
+    expect(game.scene().mining.costs.size).toBeNull()
+    expect(game.scene().mining.values.spawnRate).toBe(config.mining.spawnRate.max)
+    expect(game.scene().mining.values.goldenSpawnRate).toBe(config.mining.goldenSpawnRate.max)
+    expect(game.scene().mining.golden.owned).toBe(true)
+    expect(game.scene().mining.tractorBeam.owned).toBe(true)
+    expect(game.exportState().asteroids.every(asteroid => asteroid.health === config.asteroids.health * config.asteroids.healthScale ** sizeSteps)).toBe(true)
+    expect(rivals()).toHaveLength(3)
+    game.skipLevelOne()
+    expect(game.scene().miner.values.speed).toBe(config.upgrades.speed.max)
+    expect(game.exportState().pendingMiners).toBe(config.upgrades.count.max - 1)
+    expect(rivals()).toHaveLength(3)
+  })
+
+  it('replaces our miners and the asteroid field with a flat income', () => {
+    const game = GameImpl.restore(tuned({
+      asteroids: { spawnMs: 1_000 },
+      golden: { spawnMs: 1_000 },
+    }), fresh({
+      money: 9_999,
+      miningUnlocked: true,
+      asteroids: [
+        { id: 'rock-1', x: 500, y: 300, health: 5, maxHealth: 5, kind: 'normal' },
+      ],
+      ships: [
+        ship('player', config.map.baseX, config.map.baseY, 'engage', 'rock-1'),
+      ],
+    }))
+    expect(game.upgradeMining('automine')).toBe('broke')
+    expect(game.scene().money).toBe(9_999)
+    expect(game.exportState().asteroids).toHaveLength(1)
+    expect(game.exportState().ships).toHaveLength(1)
+    const funded = GameImpl.restore(tuned({
+      asteroids: { spawnMs: 1_000 },
+      golden: { spawnMs: 1_000 },
+    }), fresh({
+      money: 10_000,
+      miningUnlocked: true,
+      golden: true,
+      pendingMiners: 2,
+      minerWork: 500,
+      asteroids: [
+        { id: 'rock-1', x: 500, y: 300, health: 5, maxHealth: 5, kind: 'normal' },
+        { id: 'rock-2', x: 520, y: 320, health: 20, maxHealth: 20, kind: 'golden' },
+      ],
+      ships: [
+        ship('player', config.map.baseX, config.map.baseY, 'engage', 'rock-1'),
+        ship('rival', 800, config.map.baseY, 'engage', 'rock-1'),
+        { ...ship('player', config.map.baseX, config.map.baseY + 40, 'wait', null), id: 'ship-3', role: 'fighter' },
+      ],
+      nextShipId: 4,
+      nextAsteroidId: 3,
+    }))
+    expect(funded.scene().mining.automine).toEqual({ owned: false, cost: 10_000, perSecond: 200 })
+    expect(funded.upgradeMining('automine')).toBe('ok')
+    expect(funded.scene().money).toBe(0)
+    expect(funded.exportState().asteroids).toEqual([])
+    expect(funded.exportState().automine).toBe(true)
+    expect(funded.exportState().pendingMiners).toBe(0)
+    expect(funded.exportState().minerWork).toBe(0)
+    expect(funded.exportState().ships.map(miner => miner.role === 'fighter' ? 'fighter' : miner.side)).toEqual(['rival', 'fighter'])
+    expect(funded.upgradeMining('automine')).toBe('maxed')
+    expect(funded.upgradeMiner('speed')).toBe('maxed')
+    funded.advance(1_000)
+    expect(funded.scene().money).toBe(200)
+    expect(funded.exportState().asteroids).toEqual([])
+    funded.advance(2_500)
+    expect(funded.scene().money).toBe(700)
+    const saved = funded.exportState()
+    const loaded = GameImpl.restore(tuned(), saved)
+    loaded.advance(1_000)
+    expect(loaded.scene().money).toBe(900)
+    expect(loaded.exportState().asteroids).toEqual([])
+    expect(loaded.exportState().ships.filter(miner => miner.side === 'player' && miner.role === 'miner')).toEqual([])
+    funded.skipLevelOne()
+    expect(funded.exportState().ships.filter(miner => miner.side === 'player' && miner.role === 'miner')).toEqual([])
+    expect(funded.exportState().pendingMiners).toBe(0)
+    expect(funded.exportState().automine).toBe(true)
+  })
+
+  it('unlocks the ship designer and keeps a part bolted to the core', () => {
+    const game = GameImpl.create(tuned({ bank: { startingMoney: 2_000 }, ships: { speed: 0 } }), 1)
+    expect(game.placeComponent('structural', 1, 0, 0)).toBe('unknown')
+    expect(game.unlockDesigner()).toBe('ok')
+    expect(game.scene().money).toBe(0)
+    expect(game.scene().designer.owned).toBe(true)
+    expect(game.unlockDesigner()).toBe('maxed')
+    expect(game.placeComponent('structural', 1, 0, 0)).toBe('ok')
+    expect(game.placeComponent('structural', 2, 1, 0)).toBe('attach')
+    const saved = game.exportState()
+    const loaded = GameImpl.restore(tuned({ ships: { speed: 0 } }), saved)
+    expect(loaded.exportState().shipDesigner).toBe(true)
+    expect(loaded.exportState().parts).toEqual(saved.parts)
+    const id = saved.parts[0]?.id
+    expect(id).toBe('part-1')
+    if (!id) return
+    expect(loaded.removeComponent(id)).toBe('ok')
+    expect(loaded.exportState().parts).toEqual([])
+  })
+
   it('pays a doubling gift from the sidebar button', () => {
     const game = GameImpl.create(tuned({ ships: { speed: 0 } }), 1)
-    expect(game.scene().gift).toBe(10)
+    expect(game.scene().gift).toBe(10_000)
     game.claimGift()
-    expect(game.scene().money).toBe(10)
-    expect(game.scene().gift).toBe(20)
+    expect(game.scene().money).toBe(10_000)
+    expect(game.scene().gift).toBe(20_000)
     game.claimGift()
-    expect(game.scene().money).toBe(30)
-    expect(game.scene().gift).toBe(40)
+    expect(game.scene().money).toBe(30_000)
+    expect(game.scene().gift).toBe(40_000)
     const loaded = GameImpl.restore(tuned({ ships: { speed: 0 } }), game.exportState())
-    expect(loaded.scene().money).toBe(30)
-    expect(loaded.scene().gift).toBe(40)
+    expect(loaded.scene().money).toBe(30_000)
+    expect(loaded.scene().gift).toBe(40_000)
   })
 
   it('spawns small golden asteroids with tougher health and richer loot', () => {
@@ -1063,8 +1406,8 @@ describe('mining map', () => {
       money: 50,
       asteroids: [{ id: 'asteroid-1', x: 500, y: 325, health: 100, maxHealth: 100, kind: 'normal' }],
       ships: [
-        ship('player', 300, 325, 'shoot', 'asteroid-1'),
-        ship('rival', 300, 340, 'shoot', 'asteroid-1'),
+        ship('player', 450, 325, 'shoot', 'asteroid-1'),
+        ship('rival', 450, 340, 'shoot', 'asteroid-1'),
       ],
     }))
     expect(shooting.upgradeMining('golden')).toBe('ok')
@@ -1082,15 +1425,15 @@ describe('mining map', () => {
       money: 50,
       asteroids: [{ id: 'asteroid-1', x: 800, y: 325, health: 40, maxHealth: 40, kind: 'normal' }],
       ships: [
-        ship('player', 100, 325, 'engage', 'asteroid-1'),
-        ship('rival', 100, 340, 'engage', 'asteroid-1'),
+        ship('player', 400, 325, 'engage', 'asteroid-1'),
+        ship('rival', 400, 340, 'engage', 'asteroid-1'),
       ],
     }))
     expect(flying.upgradeMining('golden')).toBe('ok')
     flying.advance(1000)
     const moved = flying.exportState().ships
-    expect(moved.find(miner => miner.side === 'player')?.x).toBeCloseTo(200, 0)
-    expect(moved.find(miner => miner.id === 'ship-2')?.x).toBeCloseTo(250, 0)
+    expect(moved.find(miner => miner.side === 'player')?.x).toBeCloseTo(500, 0)
+    expect(moved.find(miner => miner.id === 'ship-2')?.x).toBeCloseTo(550, 0)
 
     const hauling = GameImpl.restore(tuned({
       ships: { speed: 400 },
@@ -1218,6 +1561,10 @@ function fresh(partial: Pick<MapState, 'asteroids' | 'ships'> & Partial<MapState
     tractorBeam: false,
     golden: false,
     miningUnlocked: false,
+    automine: false,
+    shipDesigner: false,
+    parts: [],
+    nextPartId: 1,
     goldenSpawnAccumulatorMs: 0,
     pendingMiners: 0,
     minerWork: 0,

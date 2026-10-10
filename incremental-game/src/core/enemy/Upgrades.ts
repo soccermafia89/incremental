@@ -31,7 +31,14 @@ export class EnemyUpgrades {
   }
 
   value(upgrade: EnemyUpgradeId, config: GameConfig): number {
+    if (upgrade === 'spawnRate') return this.spawnRate(config)
     return upgradeValue(config.enemyUpgrades[upgrade], this.purchased[upgrade])
+  }
+
+  /** Rate 1, then double each purchase: 1, 2, 4, 8, and so on. */
+  private spawnRate(config: GameConfig): number {
+    const spec = config.enemyUpgrades.spawnRate
+    return spec.start * 2 ** this.purchased.spawnRate
   }
 
   price(upgrade: EnemyUpgradeId, config: GameConfig): number {
@@ -93,7 +100,7 @@ export class EnemyUpgrades {
     return golden ? Math.round(interval / config.golden.rivalFire) : interval
   }
 
-  /** Rate 1 waits the full replenish interval. Higher rates shorten it. */
+  /** Rate 1 waits the full replenish interval. Each doubled rate cuts that wait in half. */
   replenishInterval(config: GameConfig): number {
     const rate = this.value('spawnRate', config)
     const start = config.enemyUpgrades.spawnRate.start

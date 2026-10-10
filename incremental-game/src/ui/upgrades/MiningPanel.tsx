@@ -18,6 +18,24 @@ export function MiningPanel({
   onUpgrade: (upgrade: MiningPurchase) => void
 }) {
   const beam = mining.tractorBeam
+  if (!mining.unlock.owned) {
+    return (
+      <div data-mining-upgrades style={{ color: 'white', width: 420 }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Mining</h2>
+        <button
+          type="button"
+          data-upgrade="unlock"
+          onClick={() => onUpgrade('unlock')}
+          style={cardStyle}
+        >
+          <div style={{ fontSize: 16, fontWeight: 'bold' }}>Unlock mining</div>
+          <div style={{ marginTop: 6, color: '#93c5fd' }}>
+            {mining.unlock.cost === null ? 'On · Max' : `Off · $${mining.unlock.cost}`}
+          </div>
+        </button>
+      </div>
+    )
+  }
   return (
     <div data-mining-upgrades style={{ color: 'white', width: 420 }}>
       <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Mining</h2>
@@ -82,6 +100,24 @@ export function MiningPanel({
           </div>
         </button>
       </div>
+      {!mining.automine.owned && (
+        <div
+          data-upgrade-section="automine"
+          style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 10 }}
+        >
+          <button
+            type="button"
+            data-upgrade="automine"
+            onClick={() => onUpgrade('automine')}
+            style={cardStyle}
+          >
+            <div style={{ fontSize: 16, fontWeight: 'bold' }}>Automine</div>
+            <div style={{ marginTop: 6, color: '#93c5fd' }}>
+              ${mining.automine.perSecond}/s · ${mining.automine.cost}
+            </div>
+          </button>
+        </div>
+      )}
     </div>
   )
 }

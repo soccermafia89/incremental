@@ -1,0 +1,6 @@
+# Both bases. Range is pixels from the base center. Rate is shots per second.
+# shotSpeed crosses that range in one frame, so each shot is a laser. The rate is unchanged.
+range: 300
+rate: 9
+damage: 1000
+shotSpeed: 20000

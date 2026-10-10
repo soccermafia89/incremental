@@ -30,23 +30,20 @@ export class MinerUpgrades {
     return upgradePrice(config.upgrades[upgrade], this.purchased[upgrade])
   }
 
-  maxed(upgrade: MinerUpgradeId, config: GameConfig, playerCount: number, pendingMiners: number): boolean {
-    return this.towardMax(upgrade, config, playerCount, pendingMiners) >= config.upgrades[upgrade].max
+  maxed(upgrade: MinerUpgradeId, config: GameConfig): boolean {
+    return this.value(upgrade, config) >= config.upgrades[upgrade].max
   }
 
-  /** Returns true when the upgrade adds another player miner. */
-  upgrade(upgrade: MinerUpgradeId): boolean {
+  upgrade(upgrade: MinerUpgradeId): void {
     this.purchased[upgrade] += 1
-    return upgrade === 'count'
   }
 
-  stats(config: GameConfig, playerCount: number, pendingMiners: number): MinerStats {
+  stats(config: GameConfig): MinerStats {
     const values = {} as MinerStats['values']
     const costs = {} as MinerStats['costs']
     for (const id of UPGRADE_IDS) {
-      values[id] = id === 'count' ? playerCount : this.value(id, config)
-      const cap = this.towardMax(id, config, playerCount, pendingMiners)
-      costs[id] = cap >= config.upgrades[id].max ? null : this.price(id, config)
+      values[id] = this.value(id, config)
+      costs[id] = this.maxed(id, config) ? null : this.price(id, config)
     }
     return { values, costs }
   }
@@ -86,10 +83,5 @@ export class MinerUpgrades {
 
   travel(ship: ShipState, dtMs: number, config: GameConfig): number {
     return this.speedOf(ship, config) * (dtMs / 1000)
-  }
-
-  /** Ships on the field, plus miners already paid for and still in the launch queue. */
-  private towardMax(upgrade: MinerUpgradeId, config: GameConfig, playerCount: number, pendingMiners: number): number {
-    return upgrade === 'count' ? playerCount + pendingMiners : this.value(upgrade, config)
   }
 }

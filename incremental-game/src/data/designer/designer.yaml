@@ -1,0 +1,45 @@
+# Unlock for the Ship Designer sidebar. Paid once.
+cost: 2000
+# Cells you can build out from the core, on each side. The core sits at (0, 0).
+half: 4
+# Sides of the core that a part can bolt onto.
+core:
+  mounts: [n, e, s, w]
+# Local (0, 0) is the square the click places. A mount is one side of one of the
+# part's squares. It bolts on when that side touches the opposite mount of a square
+# already connected to the core.
+components:
+  structural:
+    label: Structural
+    color: "#94a3b8"
+    cells:
+      - [0, 0]
+    mounts:
+      - [0, 0, n]
+      - [0, 0, e]
+      - [0, 0, s]
+      - [0, 0, w]
+  weapon:
+    label: Weapon
+    color: "#f87171"
+    cells:
+      - [0, 0]
+      - [1, 0]
+    mounts:
+      - [0, 0, w]
+  thruster:
+    label: Thruster
+    color: "#fb923c"
+    cells:
+      - [0, 0]
+    mounts:
+      - [0, 0, n]
+  energy:
+    label: Energy
+    color: "#facc15"
+    cells:
+      - [0, 0]
+      - [0, 1]
+    mounts:
+      - [0, 0, w]
+      - [0, 1, w]

@@ -11,7 +11,8 @@ export type MiningId = (typeof MINING_IDS)[number]
 export const TRACTOR_BEAM = 'tractorBeam' as const
 export const GOLDEN = 'golden' as const
 export const MINING_UNLOCK = 'unlock' as const
-export type MiningPurchase = MiningId | typeof TRACTOR_BEAM | typeof GOLDEN | typeof MINING_UNLOCK
+export const AUTOMINE = 'automine' as const
+export type MiningPurchase = MiningId | typeof TRACTOR_BEAM | typeof GOLDEN | typeof MINING_UNLOCK | typeof AUTOMINE
 
 export const MINING_FIELDS = {
   size: 'miningSizeLevel',
@@ -25,6 +26,7 @@ export type MiningTable = Record<MiningId, UpgradeSpec> & {
   golden: { cost: number }
   tractorBeam: { cost: number }
   unlock: { cost: number }
+  automine: { cost: number; perSecond: number }
 }
 
 const costField = { cost: { integer: true, min: 1 } }
@@ -37,6 +39,10 @@ export function parseMining(raw: unknown): MiningTable {
     golden: read<{ cost: number }>(row.golden, 'mining.golden', costField),
     tractorBeam: read<{ cost: number }>(row.tractorBeam, 'mining.tractorBeam', costField),
     unlock: read<{ cost: number }>(row.unlock, 'mining.unlock', costField),
+    automine: read<{ cost: number; perSecond: number }>(row.automine, 'mining.automine', {
+      cost: { integer: true, min: 1 },
+      perSecond: { integer: true, min: 1 },
+    }),
   }
 }
 

@@ -1,19 +1,21 @@
-# How fast destroyed enemy miners return. Rate 1 is replenishMs. Cost doubles each level.
-# bounty 1 leaves the payout for a destroyed ship unchanged.
+# How fast destroyed enemy miners return. Rate 1 is replenishMs.
+# Each purchase doubles the rate, so the wait halves. Max is the last of those rates.
+# The first purchase costs `cost`, then the price doubles. bounty 1 leaves the payout unchanged.
 spawnRate:
   start: 1
   step: 1
-  max: 8
-  cost: 1
+  max: 128
+  cost: 20
   bounty: 1
 # The first purchase sets the fleet cap to `start`. Each later purchase adds `step`.
 # Before any purchase the cap starts at 1, then the miner and golden bonuses multiply it.
+# The first purchase costs `cost`, then the price doubles.
 # Each purchase also multiplies destroyed-ship payout by `bounty`. Those factors compound.
 capacity:
   start: 10
   step: 5
   max: 30
-  cost: 1
+  cost: 5
   bounty: 1.3
 # Rival ship health. Start matches ships.health. Each purchase also multiplies the bounty.
 health:

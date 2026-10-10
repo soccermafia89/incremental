@@ -15,6 +15,8 @@ import mapYaml from './map/map.yaml?raw'
 import { parseMapLayout, type MapLayoutConfig } from './map'
 import miningYaml from './mining/mining.yaml?raw'
 import { parseMining, type MiningTable } from './mining'
+import cannonYaml from './cannon/cannon.yaml?raw'
+import { parseCannon, type CannonConfig } from './cannon'
 import oreYaml from './ore/ore.yaml?raw'
 import { parseOre, type OreConfig } from './ore'
 import rivalYaml from './rival/rival.yaml?raw'
@@ -23,6 +25,8 @@ import shipsYaml from './ship/ships.yaml?raw'
 import { parseShips, type ShipConfig } from './ship'
 import upgradesYaml from './upgrades/upgrades.yaml?raw'
 import { parseUpgradeTable, type UpgradeTable } from './upgrades'
+import designerYaml from './designer/designer.yaml?raw'
+import { parseDesigner, type DesignerConfig } from './designer'
 
 /** One object the match is built from. Each field is that module's own file. */
 export interface GameConfig {
@@ -35,9 +39,11 @@ export interface GameConfig {
   enemyUpgrades: EnemyUpgradeTable
   rival: RivalConfig
   ore: OreConfig
+  cannon: CannonConfig
   bank: BankConfig
   upgrades: UpgradeTable
   mining: MiningTable
+  designer: DesignerConfig
 }
 
 let cached: GameConfig | null = null
@@ -54,9 +60,11 @@ export function loadGameConfig(): GameConfig {
     enemyUpgrades: load(enemyUpgradesYaml, parseEnemyUpgrades),
     rival: load(rivalYaml, parseRival),
     ore: load(oreYaml, parseOre),
+    cannon: load(cannonYaml, parseCannon),
     bank: load(bankYaml, parseBank),
     upgrades: load(upgradesYaml, parseUpgradeTable),
     mining: load(miningYaml, parseMining),
+    designer: load(designerYaml, parseDesigner),
   }
   return cached
 }

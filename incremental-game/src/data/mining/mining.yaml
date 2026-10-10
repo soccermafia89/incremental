@@ -19,3 +19,7 @@ tractorBeam:
   cost: 350
 unlock:
   cost: 10
+# Ends the asteroid field. Cost is paid once. perSecond is the income that replaces mining.
+automine:
+  cost: 10000
+  perSecond: 200

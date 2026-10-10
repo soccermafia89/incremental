@@ -1,5 +1,6 @@
 import type { GameConfig } from '../../data/GameConfig'
-import type { MiningPurchase } from '../../data/mining'
+import { MINING_IDS, type MiningPurchase } from '../../data/mining'
+import { UPGRADE_IDS } from '../../data/upgrades'
 import { breakAsteroid } from '../asteroid/break'
 import { AsteroidField } from '../asteroid/AsteroidField'
 import { Bank } from '../base/Bank'
@@ -9,9 +10,10 @@ import type { MapScene, MapState } from '../game/state'
 import { EnemyUpgrades } from '../enemy/Upgrades'
 import { FighterUpgrades } from '../fighter/Upgrades'
 import { MiningUpgrades } from '../mining/Mining'
+import { ShipDesign, type DesignResult } from '../designer/Design'
 import type { EnemyUpgradeId } from '../../data/enemy/upgrades'
 import type { FighterUpgradeId } from '../../data/fighter/upgrades'
-import { Miners, MinerUpgrades, type MinerUpgradeId, type MinerWorld, type UpgradeResult } from '../miner'
+import { Miners, MinerUpgrades, type MinerUpgradeId, type MinerWorld, type Side, type UpgradeResult } from '../miner'
 import { OreField } from '../ore/OreField'
 import { Volley } from '../shot/Shot'
 import { MapLayout } from './Layout'
@@ -31,6 +33,7 @@ export class MapSim {
   private readonly fighterUpgrades: FighterUpgrades
   private readonly enemyUpgrades: EnemyUpgrades
   private readonly mining: MiningUpgrades
+  private readonly design: ShipDesign
   private readonly miners: Miners
   private readonly spawns: SpawnClock
   private readonly goldenSpawns: SpawnClock
@@ -45,6 +48,14 @@ export class MapSim {
   private rivalElapsedMs: number
   /** Next payout of the sidebar gift. Doubles after each claim. */
   private gift: number
+  /** Unpaid fraction of automine income, in thousandths of a dollar. Not saved. */
+  private automineMilli = 0
+  /** Time until each base cannon can fire. Not saved. */
+  private playerCannonMs = 0
+  private rivalCannonMs = 0
+  /** Beams drawn for the cannon shots fired this step. Not saved. */
+  private lasers: MapScene['lasers'] = []
+  private nextLaser = 1
   private readonly world: MinerWorld
 
   private constructor(config: GameConfig, rng: Rng, state: MapState | null) {
@@ -62,8 +73,11 @@ export class MapSim {
     this.fighterUpgrades = state ? FighterUpgrades.restore(state.fighterLevels) : FighterUpgrades.create()
     this.enemyUpgrades = state ? EnemyUpgrades.restore(state.enemyLevels) : EnemyUpgrades.create()
     this.mining = state
-      ? MiningUpgrades.restore(state.miningLevels, state.tractorBeam, state.golden, state.miningUnlocked)
+      ? MiningUpgrades.restore(state.miningLevels, state.tractorBeam, state.golden, state.miningUnlocked, state.automine)
       : MiningUpgrades.create()
+    this.design = state
+      ? ShipDesign.restore(config, state.shipDesigner, state.parts, state.nextPartId)
+      : ShipDesign.create()
     this.spawns = state ? SpawnClock.restore(state.spawnAccumulatorMs) : SpawnClock.start()
     this.goldenSpawns = state ? SpawnClock.restore(state.goldenSpawnAccumulatorMs) : SpawnClock.start()
     this.pendingMiners = state?.pendingMiners ?? 0
@@ -109,6 +123,62 @@ export class MapSim {
     this.gift *= 2
   }
 
+  /**
+   * Max every miner upgrade and every upgrade on the Mining page.
+   * Each level uses the same effects as buying it. Nothing is charged.
+   */
+  skipLevelOne(): void {
+    if (!this.mining.hasAutomine()) {
+      for (const id of UPGRADE_IDS) {
+        while (!this.upgrades.maxed(id, this.config)) this.grantMiner(id)
+      }
+    }
+    if (!this.mining.hasUnlock()) this.grantMining('unlock')
+    for (const id of MINING_IDS) {
+      if (id === 'goldenSpawnRate') continue
+      while (!this.mining.maxed(id, this.config)) this.grantMining(id)
+    }
+    if (!this.mining.hasGolden()) this.grantMining('golden')
+    while (!this.mining.maxed('goldenSpawnRate', this.config)) this.grantMining('goldenSpawnRate')
+    if (!this.mining.hasTractor()) this.grantMining('tractorBeam')
+  }
+
+  /** The effects of one miner purchase, apart from the price. */
+  private grantMiner(upgrade: MinerUpgradeId): void {
+    this.upgrades.upgrade(upgrade)
+    if (upgrade === 'count') this.fillMiners()
+  }
+
+  /** The effects of one mining purchase, apart from the price. */
+  private grantMining(upgrade: MiningPurchase): void {
+    if (upgrade === 'unlock') {
+      this.mining.ownUnlock()
+      return
+    }
+    if (upgrade === 'golden') {
+      this.mining.ownGolden()
+      this.growRivalCap(this.config.golden.rivalShips)
+      return
+    }
+    if (upgrade === 'tractorBeam') {
+      this.mining.ownTractor()
+      this.bank.deposit(this.ore.drain())
+      this.miners.leaveOre(this.world)
+      this.miners.turnHostile(this.world)
+      return
+    }
+    if (upgrade === 'automine') {
+      this.mining.ownAutomine()
+      this.asteroids.clear()
+      this.pendingMiners = 0
+      this.minerWork = 0
+      this.miners.dismissPlayerMiners(this.world)
+      return
+    }
+    this.mining.upgrade(upgrade)
+    if (upgrade === 'size') this.asteroids.scaleHealth(this.config.asteroids.healthScale)
+  }
+
   upgradeEnemy(upgrade: EnemyUpgradeId): UpgradeResult {
     return this.buy(this.enemyUpgrades.maxed(upgrade, this.config), this.enemyUpgrades.price(upgrade, this.config), () => {
       const before = this.enemyUpgrades.levels().capacity
@@ -130,44 +200,56 @@ export class MapSim {
     })
   }
 
+  unlockDesigner(): UpgradeResult {
+    return this.buy(this.design.hasUnlock(), this.config.designer.cost, () => {
+      this.design.unlock()
+    })
+  }
+
+  placeComponent(component: string, x: number, y: number, rotation: number): DesignResult {
+    return this.design.place(this.config, component, x, y, rotation)
+  }
+
+  removeComponent(id: string): DesignResult {
+    return this.design.remove(this.config, id)
+  }
+
+  designPreview(component: string, x: number, y: number, rotation: number): { x: number; y: number }[] | null {
+    return this.design.preview(this.config, component, x, y, rotation)
+  }
+
   upgrade(upgrade: MinerUpgradeId): UpgradeResult {
-    return this.buy(
-      this.upgrades.maxed(upgrade, this.config, this.miners.playerCount, this.pendingMiners),
-      this.upgrades.price(upgrade, this.config),
-      () => {
-        if (this.upgrades.upgrade(upgrade)) this.pendingMiners += 1
-      },
-    )
+    if (this.mining.hasAutomine()) return 'maxed'
+    return this.buy(this.upgrades.maxed(upgrade, this.config), this.upgrades.price(upgrade, this.config), () => {
+      this.grantMiner(upgrade)
+    })
   }
 
   upgradeMining(upgrade: MiningPurchase): UpgradeResult {
+    if (this.mining.hasAutomine()) return 'maxed'
+    if (upgrade === 'automine') {
+      return this.buy(false, this.mining.autominePrice(this.config), () => {
+        this.grantMining('automine')
+      })
+    }
     if (upgrade === 'unlock') {
       return this.buy(this.mining.hasUnlock(), this.mining.unlockPrice(this.config), () => {
-        this.mining.ownUnlock()
+        this.grantMining('unlock')
       })
     }
     if (upgrade === 'golden') {
       return this.buy(this.mining.hasGolden(), this.mining.goldenPrice(this.config), () => {
-        this.mining.ownGolden()
-        this.growRivalCap(this.config.golden.rivalShips)
+        this.grantMining('golden')
       })
     }
     if (upgrade === 'tractorBeam') {
       return this.buy(this.mining.hasTractor(), this.mining.tractorPrice(this.config), () => {
-        this.mining.ownTractor()
-        this.bank.deposit(this.ore.drain())
-        this.miners.leaveOre(this.world)
-        this.miners.turnHostile(this.world)
+        this.grantMining('tractorBeam')
       })
     }
-    return this.buy(
-      this.mining.maxed(upgrade, this.config),
-      this.mining.price(upgrade, this.config),
-      () => {
-        this.mining.upgrade(upgrade)
-        if (upgrade === 'size') this.asteroids.scaleHealth(this.config.asteroids.healthScale)
-      },
-    )
+    return this.buy(this.mining.maxed(upgrade, this.config), this.mining.price(upgrade, this.config), () => {
+      this.grantMining(upgrade)
+    })
   }
 
   advance(dtMs: number): void {
@@ -182,17 +264,19 @@ export class MapSim {
       asteroids: this.asteroids.scene(),
       ores: this.ore.scene(),
       shots: this.shots.scene(),
+      lasers: this.lasers.map(laser => ({ ...laser })),
       ships: this.miners.scene(this.world),
       spawnInMs: this.spawns.remaining(this.mining.spawnInterval(this.config)),
       asteroidSize: this.mining.rockSize(this.config),
       goldenSize: this.mining.goldenSize(this.config),
-      miner: this.upgrades.stats(this.config, this.miners.playerCount, this.pendingMiners),
+      miner: this.upgrades.stats(this.config),
       nextMiner: this.nextMiner(),
       mining: this.mining.stats(this.config),
       fighter: this.fighterUpgrades.stats(this.config),
       nextFighter: this.nextFighter(),
       enemy: this.enemyScene(),
       gift: this.gift,
+      designer: this.design.scene(this.config),
     }
   }
 
@@ -213,6 +297,7 @@ export class MapSim {
       tractorBeam: this.mining.hasTractor(),
       golden: this.mining.hasGolden(),
       miningUnlocked: this.mining.hasUnlock(),
+      automine: this.mining.hasAutomine(),
       pendingMiners: this.pendingMiners,
       minerWork: this.minerWork,
       pendingFighters: this.pendingFighters,
@@ -221,33 +306,50 @@ export class MapSim {
       rivalElapsedMs: this.rivalElapsedMs,
       fleetAnswered: this.fleetAnswered,
       gift: this.gift,
+      ...this.design.save(),
     }
   }
 
   private step(dtMs: number): void {
+    this.lasers = []
     this.ore.drift(dtMs, this.config)
     this.miners.move(dtMs, this.world, () => this.rng.next())
-    this.shots.fly(dtMs, this.config.ships.shotSpeed, shot => {
+    this.fireCannons(dtMs)
+    this.shots.fly(dtMs, this.config.ships.shotSpeed, this.config.cannon.shotSpeed, shot => {
       if (shot.shipId) {
-        this.miners.hurt(shot.shipId, shot.damage, this.world)
+        this.miners.hurt(shot.shipId, shot.damage, this.world, !shot.cannon)
         return
       }
       breakAsteroid(shot, this.asteroids, this.ore, this.miners, this.mining, this.bank, this.config, () => this.rng.next())
     }, id => this.miners.locate(id))
-    this.spawns.tick(dtMs, this.mining.spawnInterval(this.config), () => {
-      this.asteroids.spawn(this.config, () => this.rng.next(), this.mining.rockHealth(this.config, 'normal'))
-    })
-    if (this.mining.hasGolden()) {
-      this.goldenSpawns.tick(dtMs, this.mining.goldenInterval(this.config), () => {
-        this.asteroids.spawnGolden(this.config, () => this.rng.next(), this.mining.rockHealth(this.config, 'golden'))
+    if (!this.mining.hasAutomine()) {
+      this.spawns.tick(dtMs, this.mining.spawnInterval(this.config), () => {
+        this.asteroids.spawn(this.config, () => this.rng.next(), this.mining.rockHealth(this.config, 'normal'))
       })
+      if (this.mining.hasGolden()) {
+        this.goldenSpawns.tick(dtMs, this.mining.goldenInterval(this.config), () => {
+          this.asteroids.spawnGolden(this.config, () => this.rng.next(), this.mining.rockHealth(this.config, 'golden'))
+        })
+      }
     }
     this.miners.scoop(this.world, () => this.rng.next())
     this.miners.finishStep(dtMs, this.world)
-    this.launchMiners(dtMs)
+    if (!this.mining.hasAutomine()) this.launchMiners(dtMs)
+    this.payAutomine(dtMs)
     this.launchFighter(dtMs)
     this.replenishRivals(dtMs)
+    if (!this.mining.hasAutomine()) this.fillMiners()
     this.fillFighters()
+  }
+
+  /** `perSecond` dollars each second, paid as whole dollars as time accrues. */
+  private payAutomine(dtMs: number): void {
+    if (!this.mining.hasAutomine()) return
+    this.automineMilli += this.mining.automineIncome(this.config) * dtMs
+    const dollars = Math.floor(this.automineMilli / 1000)
+    if (dollars <= 0) return
+    this.automineMilli -= dollars * 1000
+    this.bank.deposit(dollars)
   }
 
   private launchMiners(dtMs: number): void {
@@ -287,11 +389,57 @@ export class MapSim {
     for (let i = 0; i < added; i += 1) this.miners.spawn('rival', this.world)
   }
 
-  /** New cap room launches now. Ships already destroyed still come back on the minute clock. */
+  /** New cap room launches now. Ships already destroyed still come back on the spawn-rate clock. */
   private growRivalCap(factor: number): void {
     const added = this.rivalCap * (factor - 1)
     this.rivalCap *= factor
     for (let i = 0; i < added; i += 1) this.miners.spawn('rival', this.world)
+  }
+
+  /** Each base shoots the nearest enemy ship inside its range. The first shot is immediate. */
+  private fireCannons(dtMs: number): void {
+    this.fireCannon('player', dtMs)
+    this.fireCannon('rival', dtMs)
+  }
+
+  private fireCannon(side: Side, dtMs: number): void {
+    const home = this.layout.home(side)
+    const target = this.miners.nearestEnemy(side, home, this.config.cannon.range)
+    if (!target) return
+    const cooldown = side === 'player' ? this.playerCannonMs : this.rivalCannonMs
+    const next = cooldown - dtMs
+    if (next > 0) {
+      this.setCannonCooldown(side, next)
+      return
+    }
+    this.shots.fire({
+      x: home.x,
+      y: home.y,
+      targetX: target.x,
+      targetY: target.y,
+      asteroidId: null,
+      shipId: target.id,
+      side,
+      damage: this.config.cannon.damage,
+      cannon: true,
+    })
+    this.lasers.push({
+      id: this.nextLaser,
+      x0: home.x,
+      y0: home.y,
+      x1: target.x,
+      y1: target.y,
+      side,
+    })
+    this.nextLaser += 1
+    const interval = Math.round(1000 / this.config.cannon.rate)
+    const reloaded = next + interval
+    this.setCannonCooldown(side, reloaded < 0 ? 0 : reloaded)
+  }
+
+  private setCannonCooldown(side: Side, ms: number): void {
+    if (side === 'player') this.playerCannonMs = ms
+    else this.rivalCannonMs = ms
   }
 
   /** One destroyed rival miner returns to the base per replenish interval, and not past the cap. */
@@ -319,6 +467,16 @@ export class MapSim {
       this.miners.spawnFighter(this.world)
     }
     if (this.pendingFighters === 0) this.fighterWork = 0
+  }
+
+  /** Miners on the field plus miners still in the build queue. */
+  private minersHeld(): number {
+    return this.miners.playerCount + this.pendingMiners
+  }
+
+  /** Keep a miner building or flying for each one the count upgrade allows. */
+  private fillMiners(): void {
+    while (this.minersHeld() < this.upgrades.value('count', this.config)) this.pendingMiners += 1
   }
 
   /** Fighters on the field plus fighters still in the build queue. */

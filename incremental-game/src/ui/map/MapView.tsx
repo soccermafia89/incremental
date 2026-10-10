@@ -116,6 +116,10 @@ export function MapView({ scene }: { scene: MapScene }) {
         />
       ))}
 
+      {scene.lasers.map(laser => (
+        <Laser key={laser.id} laser={laser} />
+      ))}
+
       {scene.shots.map(shot => (
         <div
           key={shot.id}
@@ -177,6 +181,29 @@ export function MapView({ scene }: { scene: MapScene }) {
         )
       })}
     </div>
+  )
+}
+
+function Laser({ laser }: { laser: { x0: number; y0: number; x1: number; y1: number; side: 'player' | 'rival' } }) {
+  const color = laser.side === 'rival' ? '#fca5a5' : '#fef08a'
+  const length = Math.hypot(laser.x1 - laser.x0, laser.y1 - laser.y0)
+  const angle = Math.atan2(laser.y1 - laser.y0, laser.x1 - laser.x0) * 180 / Math.PI
+  return (
+    <div
+      data-laser=""
+      data-side={laser.side}
+      style={{
+        position: 'absolute',
+        left: laser.x0,
+        top: laser.y0 - 1,
+        width: length,
+        height: 2,
+        backgroundColor: color,
+        boxShadow: `0 0 6px ${color}`,
+        transformOrigin: '0 50%',
+        transform: `rotate(${angle}deg)`,
+      }}
+    />
   )
 }
 

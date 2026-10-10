@@ -30,39 +30,45 @@ const SECTIONS: { name?: string; rows: { id: MinerUpgradeId; label: string }[] }
 
 export function ShipUpgradesPanel({
   miner,
-  miningUnlock,
+  showMiner,
+  designer,
   onUpgrade,
-  onUnlockMining,
+  onUnlockDesigner,
 }: {
   miner: MinerStats
-  miningUnlock: { owned: boolean; cost: number | null }
+  showMiner: boolean
+  designer: { owned: boolean; cost: number | null }
   onUpgrade: (upgrade: MinerUpgradeId) => void
-  onUnlockMining: () => void
+  onUnlockDesigner: () => void
 }) {
   const [open, setOpen] = useState(false)
 
-  if (!open) {
+  if (!open || !showMiner) {
     return (
       <div data-ship-upgrades style={{ color: 'white', width: 420 }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Ship Upgrades</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {showMiner && (
+            <button
+              type="button"
+              data-upgrade="miner"
+              onClick={() => setOpen(true)}
+              style={cardStyle}
+            >
+              <div style={{ fontSize: 16, fontWeight: 'bold' }}>Miner</div>
+            </button>
+          )}
           <button
             type="button"
-            data-upgrade="miner"
-            onClick={() => setOpen(true)}
+            data-upgrade="designer"
+            onClick={() => {
+              if (!designer.owned) onUnlockDesigner()
+            }}
             style={cardStyle}
           >
-            <div style={{ fontSize: 16, fontWeight: 'bold' }}>Miner</div>
-          </button>
-          <button
-            type="button"
-            data-upgrade="unlock"
-            onClick={onUnlockMining}
-            style={cardStyle}
-          >
-            <div style={{ fontSize: 16, fontWeight: 'bold' }}>Mining</div>
+            <div style={{ fontSize: 16, fontWeight: 'bold' }}>Ship designer</div>
             <div style={{ marginTop: 6, color: '#93c5fd' }}>
-              {miningUnlock.owned || miningUnlock.cost === null ? 'On · Max' : `Off · $${miningUnlock.cost}`}
+              {designer.owned || designer.cost === null ? 'On · Max' : `Off · $${designer.cost}`}
             </div>
           </button>
         </div>

@@ -29,15 +29,32 @@ export class FighterUpgrades {
   }
 
   value(upgrade: FighterUpgradeId, config: GameConfig): number {
+    if (upgrade === 'production') return this.productionRate(config)
     return upgradeValue(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
+  /** Units per second. Each purchase makes the build take 70% as long as the one before it. */
+  private productionRate(config: GameConfig): number {
+    const start = config.fighterUpgrades.production.start
+    return start * (10 / 7) ** this.purchased.production
+  }
+
   price(upgrade: FighterUpgradeId, config: GameConfig): number {
+    if (upgrade === 'count') return this.countPrice(config)
     return upgradePrice(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
+  /** The first fighter is free. The next costs `cost`, then the price doubles. */
+  private countPrice(config: GameConfig): number {
+    const level = this.purchased.count
+    if (level === 0) return 0
+    return config.fighterUpgrades.count.cost * 2 ** (level - 1)
+  }
+
   maxed(upgrade: FighterUpgradeId, config: GameConfig): boolean {
-    return this.value(upgrade, config) >= config.fighterUpgrades[upgrade].max
+    const spec = config.fighterUpgrades[upgrade]
+    if (upgrade === 'production') return this.purchased.production >= (spec.max - spec.start) / spec.step
+    return this.value(upgrade, config) >= spec.max
   }
 
   upgrade(upgrade: FighterUpgradeId): void {

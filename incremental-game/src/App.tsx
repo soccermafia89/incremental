@@ -7,6 +7,7 @@ import type { GameSettings } from './ui/settings/GameSettings'
 import { FitMap } from './ui/map/FitMap'
 import { EnemyPanel } from './ui/upgrades/EnemyPanel'
 import { FighterPanel } from './ui/upgrades/FighterPanel'
+import { DesignerPanel } from './ui/upgrades/DesignerPanel'
 import { MiningPanel } from './ui/upgrades/MiningPanel'
 import { ShipUpgradesPanel } from './ui/upgrades/ShipUpgradesPanel'
 import { FullScreen } from './ui/shell/FullScreen'
@@ -69,10 +70,17 @@ function App() {
           activeView={activeView}
           onViewChange={handleViewChange}
           devMode={settings.devMode}
-          showMining={scene.mining.unlock.owned}
+          showMining={!scene.mining.automine.owned}
+          showDesigner={scene.designer.owned}
           showFighter={scene.mining.tractorBeam.owned}
           showEnemy={scene.mining.tractorBeam.owned}
           gift={scene.gift}
+          onSkipLevelOne={() => {
+            void session.client.act({ type: 'skipLevelOne' }).then(result => {
+              setActionError(result.ok ? null : result.error)
+              session.setFrame(value => value + 1)
+            })
+          }}
           onGift={() => {
             void session.client.act({ type: 'claimGift' }).then(result => {
               setActionError(result.ok ? null : result.error)
@@ -92,12 +100,13 @@ function App() {
           {activeView === 'map' && (
             <FitMap scene={scene} frame={session.frame} />
           )}
-          {activeView === 'mining' && scene.mining.unlock.owned && (
+          {activeView === 'mining' && !scene.mining.automine.owned && (
             <MiningPanel
               mining={scene.mining}
               onUpgrade={upgrade => {
                 void session.client.act({ type: 'upgradeMining', upgrade }).then(result => {
                   setActionError(result.ok ? null : result.error)
+                  if (result.ok && upgrade === 'automine') setActiveView('map')
                   session.setFrame(value => value + 1)
                 })
               }}
@@ -125,12 +134,31 @@ function App() {
               }}
             />
           )}
+          {activeView === 'designer' && scene.designer.owned && (
+            <DesignerPanel
+              designer={scene.designer}
+              preview={(component, x, y, rotation) => game.designPreview(component, x, y, rotation)}
+              onPlace={(component, x, y, rotation) => {
+                void session.client.act({ type: 'placeComponent', component, x, y, rotation }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onRemove={id => {
+                void session.client.act({ type: 'removeComponent', id }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+            />
+          )}
           {activeView === 'upgrades' && (
             <ShipUpgradesPanel
               miner={scene.miner}
-              miningUnlock={scene.mining.unlock}
-              onUnlockMining={() => {
-                void session.client.act({ type: 'upgradeMining', upgrade: 'unlock' }).then(result => {
+              showMiner={!scene.mining.automine.owned}
+              designer={scene.designer}
+              onUnlockDesigner={() => {
+                void session.client.act({ type: 'unlockDesigner' }).then(result => {
                   setActionError(result.ok ? null : result.error)
                   session.setFrame(value => value + 1)
                 })

@@ -78,14 +78,28 @@ export class Miners {
     return ship ? { x: ship.x, y: ship.y } : undefined
   }
 
-  /** Damage a ship. A rival that dies pays the bounty. Anyone aiming at it picks a new job. */
-  hurt(id: string, damage: number, world: MinerWorld): void {
+  /** The closest ship of the other side that sits inside `range` of `origin`. */
+  nearestEnemy(side: Side, origin: { x: number; y: number }, range: number): { id: string; x: number; y: number } | undefined {
+    let nearest: { id: string; x: number; y: number } | undefined
+    let best = range
+    for (const ship of this.ships) {
+      if (ship.side === side) continue
+      const distance = Math.hypot(ship.x - origin.x, ship.y - origin.y)
+      if (distance > best) continue
+      best = distance
+      nearest = { id: ship.id, x: ship.x, y: ship.y }
+    }
+    return nearest
+  }
+
+  /** Damage a ship. A rival killed by a ship pays the bounty. A base cannon kill does not. */
+  hurt(id: string, damage: number, world: MinerWorld, bounty: boolean): void {
     const ship = this.ships.find(item => item.id === id)
     if (!ship) return
     ship.health -= damage
     if (ship.health > 0) return
     this.ships = this.ships.filter(item => item.id !== id)
-    if (ship.side === 'rival') {
+    if (ship.side === 'rival' && bounty) {
       const factor = world.enemyUpgrades.bountyMultiplier(world.config)
       world.bank.deposit(Math.round(world.config.fighter.bounty * factor))
     }
@@ -143,6 +157,17 @@ export class Miners {
   /** Ships that share a map cell are pushed until their bodies no longer overlap. */
   private clearOverlap(world: MinerWorld): void {
     separateShips(this.ships, world.config.map.cell, world.config.ships.radius, world.config.map)
+  }
+
+  /** Our miners leave the map. Fighters and the rival fleet stay. */
+  dismissPlayerMiners(world: MinerWorld): void {
+    const gone = new Set(
+      this.ships.filter(ship => ship.side === 'player' && ship.role === 'miner').map(ship => ship.id),
+    )
+    this.ships = this.ships.filter(ship => !gone.has(ship.id))
+    for (const ship of this.ships) {
+      if (ship.targetId !== null && gone.has(ship.targetId)) release(ship, this.ships, world)
+    }
   }
 
   /** Collectors stop chasing nuggets. A hold they already have still goes home. */

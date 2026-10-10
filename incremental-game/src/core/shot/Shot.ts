@@ -11,6 +11,8 @@ export interface ShotState {
   shipId: string | null
   side: Side
   damage: number
+  /** True when a base cannon fired this shot. That kill pays no bounty. */
+  cannon: boolean
 }
 
 export interface FiredShot {
@@ -22,6 +24,8 @@ export interface FiredShot {
   shipId: string | null
   side: Side
   damage: number
+  /** True when a base cannon fired this shot. That kill pays no bounty. */
+  cannon: boolean
 }
 
 export class Volley {
@@ -52,6 +56,7 @@ export class Volley {
       shipId: shot.shipId,
       side: shot.side,
       damage: shot.damage,
+      cannon: shot.cannon,
     })
     this.nextId += 1
   }
@@ -59,10 +64,10 @@ export class Volley {
   fly(
     dtMs: number,
     shotSpeed: number,
+    cannonSpeed: number,
     onHit: (shot: ShotState) => void,
     track: (shipId: string) => { x: number; y: number } | undefined,
   ): void {
-    const distance = shotSpeed * (dtMs / 1000)
     const stillFlying: ShotState[] = []
     for (const shot of this.shots) {
       if (shot.shipId) {
@@ -71,7 +76,8 @@ export class Volley {
         shot.targetX = body.x
         shot.targetY = body.y
       }
-      const hit = moveToward(shot, { x: shot.targetX, y: shot.targetY }, distance)
+      const speed = shot.cannon ? cannonSpeed : shotSpeed
+      const hit = moveToward(shot, { x: shot.targetX, y: shot.targetY }, speed * (dtMs / 1000))
       if (!hit) {
         stillFlying.push(shot)
         continue
@@ -82,7 +88,9 @@ export class Volley {
   }
 
   scene(): { id: string; x: number; y: number; side: Side }[] {
-    return this.shots.map(shot => ({ id: shot.id, x: shot.x, y: shot.y, side: shot.side }))
+    return this.shots
+      .filter(shot => !shot.cannon)
+      .map(shot => ({ id: shot.id, x: shot.x, y: shot.y, side: shot.side }))
   }
 
   save(): { nextShotId: number; shots: ShotState[] } {

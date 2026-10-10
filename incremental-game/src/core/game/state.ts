@@ -5,6 +5,7 @@ import type { EnemyStats } from '../enemy/Upgrades'
 import type { FighterStats } from '../fighter/Upgrades'
 import type { UpgradeLevels } from '../../data/upgrades'
 import type { AsteroidState } from '../asteroid/AsteroidField'
+import type { DesignResult, DesignerScene, PlacedPart } from '../designer/Design'
 import type { MiningStats } from '../mining/Mining'
 import type { MinerStats, MinerUpgradeId, ShipRole, ShipState, Side, UpgradeResult } from '../miner'
 import type { OreState } from '../ore/OreField'
@@ -31,6 +32,13 @@ export interface MapState {
   golden: boolean
   /** The Mining tab stays once this is bought. */
   miningUnlocked: boolean
+  /** Asteroids and our miners are gone. Income is a flat rate. */
+  automine: boolean
+  /** The Ship Designer sidebar stays once this is bought. */
+  shipDesigner: boolean
+  /** Parts bolted to the core, in the order they were placed. */
+  parts: PlacedPart[]
+  nextPartId: number
   /** Player miners bought and not yet on the field. */
   pendingMiners: number
   /** Production already spent on the miner at the front of that queue, in unit-milliseconds. */
@@ -59,6 +67,8 @@ export interface MapScene {
   asteroids: AsteroidState[]
   ores: { id: string; x: number; y: number; kind: AsteroidState['kind'] }[]
   shots: { id: string; x: number; y: number; side: Side }[]
+  /** Base-cannon beams from the last step. They are not saved. */
+  lasers: { id: number; x0: number; y0: number; x1: number; y1: number; side: Side }[]
   ships: { id: string; x: number; y: number; carrying: boolean; heading: number; side: Side; role: ShipRole; health: number; maxHealth: number }[]
   maxAsteroids: number
   /** Milliseconds until the next asteroid. */
@@ -79,6 +89,8 @@ export interface MapScene {
   enemy: EnemyStats
   /** What the next sidebar gift pays. */
   gift: number
+  /** The ship being built in the designer. The core is always present. */
+  designer: DesignerScene
 }
 
 export interface Game {
@@ -90,4 +102,9 @@ export interface Game {
   upgradeFighterStat(upgrade: FighterUpgradeId): UpgradeResult
   upgradeEnemy(upgrade: EnemyUpgradeId): UpgradeResult
   claimGift(): void
+  skipLevelOne(): void
+  unlockDesigner(): UpgradeResult
+  placeComponent(component: string, x: number, y: number, rotation: number): DesignResult
+  removeComponent(id: string): DesignResult
+  designPreview(component: string, x: number, y: number, rotation: number): { x: number; y: number }[] | null
 }

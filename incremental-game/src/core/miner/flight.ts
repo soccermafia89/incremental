@@ -1,5 +1,5 @@
 import { inWeaponRange, moveToward } from '../motion/move'
-import { deliver, pickup, release } from './jobs'
+import { BASE_TARGET, deliver, huntNearest, opposingBase, pickup, release } from './jobs'
 import { attackSlot, fireSlot, homeSlot } from './slots'
 import type { ShipState } from './types'
 import type { MinerWorld } from './world'
@@ -25,6 +25,7 @@ export function moveMiners(ships: ShipState[], dtMs: number, world: MinerWorld):
 export function heading(ship: ShipState, world: MinerWorld, ships: ShipState[]): number {
   if (ship.mode === 'back') return aim(ship, homeSlot(ship, ships, world))
   if (ship.mode === 'hunt' || ship.mode === 'attack') {
+    if (ship.targetId === BASE_TARGET) return aim(ship, opposingBase(ship, world))
     const enemy = ships.find(other => other.id === ship.targetId)
     return enemy ? aim(ship, enemy) : 0
   }
@@ -56,6 +57,10 @@ function flyToOre(ship: ShipState, distance: number, world: MinerWorld, ships: S
 }
 
 function flyToEnemy(ship: ShipState, distance: number, world: MinerWorld, ships: ShipState[]): void {
+  if (ship.targetId === BASE_TARGET) {
+    flyToBase(ship, distance, world, ships)
+    return
+  }
   const target = ships.find(other => other.id === ship.targetId && other.side !== ship.side)
   if (!target) {
     release(ship, ships, world)
@@ -63,6 +68,18 @@ function flyToEnemy(ship: ShipState, distance: number, world: MinerWorld, ships:
   }
   const slot = attackSlot(ship, target, ships, world)
   if (inWeaponRange(ship, target, world.config.ships.weaponRange) || moveToward(ship, slot, distance)) {
+    ship.mode = 'attack'
+  }
+}
+
+function flyToBase(ship: ShipState, distance: number, world: MinerWorld, ships: ShipState[]): void {
+  if (ships.some(other => other.side !== ship.side)) {
+    huntNearest(ship, ships, world)
+    return
+  }
+  const base = opposingBase(ship, world)
+  const slot = attackSlot(ship, { ...base, id: BASE_TARGET }, ships, world)
+  if (inWeaponRange(ship, base, world.config.ships.weaponRange) || moveToward(ship, slot, distance)) {
     ship.mode = 'attack'
   }
 }
@@ -85,12 +102,17 @@ function fire(ship: ShipState, dtMs: number, world: MinerWorld, ships: ShipState
     shipId: null,
     side: ship.side,
     damage: gunDamage(ship, world),
+    cannon: false,
   })
   ship.fireCooldownMs += gunInterval(ship, world)
   if (ship.fireCooldownMs < 0) ship.fireCooldownMs = 0
 }
 
 function fireAtShip(ship: ShipState, dtMs: number, world: MinerWorld, ships: ShipState[]): void {
+  if (ship.targetId === BASE_TARGET) {
+    fireAtBase(ship, dtMs, world, ships)
+    return
+  }
   const target = ships.find(other => other.id === ship.targetId && other.side !== ship.side)
   if (!target) {
     release(ship, ships, world)
@@ -111,6 +133,35 @@ function fireAtShip(ship: ShipState, dtMs: number, world: MinerWorld, ships: Shi
     shipId: target.id,
     side: ship.side,
     damage: gunDamage(ship, world),
+    cannon: false,
+  })
+  ship.fireCooldownMs += gunInterval(ship, world)
+  if (ship.fireCooldownMs < 0) ship.fireCooldownMs = 0
+}
+
+/** The base is a fixed point. The shot is labeled so a save can store it, and the hit finds no rock. */
+function fireAtBase(ship: ShipState, dtMs: number, world: MinerWorld, ships: ShipState[]): void {
+  if (ships.some(other => other.side !== ship.side)) {
+    huntNearest(ship, ships, world)
+    return
+  }
+  const base = opposingBase(ship, world)
+  if (!inWeaponRange(ship, base, world.config.ships.weaponRange)) {
+    ship.mode = 'hunt'
+    return
+  }
+  ship.fireCooldownMs -= dtMs
+  if (ship.fireCooldownMs > 0) return
+  world.shots.fire({
+    x: ship.x,
+    y: ship.y,
+    targetX: base.x,
+    targetY: base.y,
+    asteroidId: BASE_TARGET,
+    shipId: null,
+    side: ship.side,
+    damage: gunDamage(ship, world),
+    cannon: false,
   })
   ship.fireCooldownMs += gunInterval(ship, world)
   if (ship.fireCooldownMs < 0) ship.fireCooldownMs = 0

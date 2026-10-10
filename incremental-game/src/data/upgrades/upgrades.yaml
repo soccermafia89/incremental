@@ -18,6 +18,8 @@ carry:
   step: 1
   max: 5
   cost: 1
+# How many miners are kept. Starts at 1 for the miner already at the base.
+# Each purchase adds one. A destroyed miner is built again until that number is full.
 count:
   start: 1
   step: 1
@@ -27,5 +29,5 @@ count:
 production:
   start: 1
   step: 1
-  max: 5
+  max: 8
   cost: 1
