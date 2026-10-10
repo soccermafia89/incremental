@@ -1,0 +1,6 @@
+spawnMs: 5000
+max: 20
+health: 5
+healthScale: 2
+size: 18
+sizeStep: 2

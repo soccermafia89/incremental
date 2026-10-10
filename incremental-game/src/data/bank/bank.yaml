@@ -1,0 +1,3 @@
+startingMoney: 0
+# First click of the sidebar gift. Each later click pays twice the last one.
+gift: 10

@@ -1,0 +1,15 @@
+{
+  "name": "incremental",
+  "private": true,
+  "scripts": {
+    "postinstall": "npm install --prefix incremental-game",
+    "dev": "npm run dev --prefix incremental-game",
+    "build": "npm run build --prefix incremental-game",
+    "lint": "npm run lint --prefix incremental-game",
+    "preview": "npm run preview --prefix incremental-game",
+    "test": "npm run test --prefix incremental-game",
+    "server": "npm run server --prefix incremental-game",
+    "server:http": "npm run server:http --prefix incremental-game",
+    "server:mcp": "npm run server:mcp --prefix incremental-game"
+  }
+}

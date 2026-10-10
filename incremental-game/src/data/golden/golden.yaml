@@ -1,0 +1,9 @@
+health: 4
+value: 20
+size: 10
+spawnMs: 10000
+max: 3
+rivalShips: 3
+rivalFire: 2
+rivalDamage: 2
+rivalCarry: 2

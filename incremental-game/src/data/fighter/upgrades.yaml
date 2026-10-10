@@ -1,0 +1,35 @@
+# Fighter stats for our side. `start` is the value before any purchase. Cost doubles each level.
+# Health start matches ships.health. Speed start 10 is full ship speed, the same scale as miners.
+# Each base cost is four times the matching miner upgrade. Health uses the $1 miner base.
+speed:
+  start: 10
+  step: 2
+  max: 30
+  cost: 4
+attackRate:
+  start: 1
+  step: 1
+  max: 5
+  cost: 4
+health:
+  start: 20
+  step: 10
+  max: 60
+  cost: 4
+damage:
+  start: 10
+  step: 5
+  max: 20
+  cost: 4
+# How many fighters are kept. Starts at none. The first buy builds one, and losses are replaced.
+count:
+  start: 0
+  step: 1
+  max: 5
+  cost: 20
+# Units built each second on the fighter bar. Four times the miner production cost.
+production:
+  start: 1
+  step: 1
+  max: 5
+  cost: 4

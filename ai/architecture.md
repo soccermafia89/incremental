@@ -1,0 +1,38 @@
+# Architecture
+
+Dependencies point inward. No React in `src/core/`.
+
+| Layer | Responsibility |
+| --- | --- |
+| `src/core/game/` | Glue. `Game` delegates to the map. `Clock` chops time into steps. |
+| `src/core/map/` | The live map: layout, spawn clock, and the step order. |
+| `src/core/miner/` | Miners: flight, jobs, upgrades, the once-a-second duty check. Loot in a map cell is taken by a random ship in that cell that still has room. After the tractor beam, rival miners hunt player ships, and the fighter hunts rivals. A destroyed rival miner returns to its base on the enemy spawn-rate clock, up to that fleet's cap. The cap starts at 1. Reaching three player miners doubles it, and golden asteroids multiply it by three. The enemy capacity upgrade sets it to 10 on the first purchase and adds 5 after that. Each of those purchases multiplies the bounty for a destroyed rival by 1.3, as do the health, damage, and attack-rate upgrades, which also raise the rival ships. Spawn rate does not. Rate 1 is one a minute. |
+| `src/core/base/` | The player bank. |
+| `src/core/asteroid/` | Asteroid field, and what happens when a shot breaks one. |
+| `src/core/ore/` | Ore nuggets. |
+| `src/core/shot/` | Shots in flight. |
+| `src/core/motion/` | Shared movement. |
+| `src/core/persistence/` | Save and load. |
+| `src/data/` | YAML settings, one file per module: map, asteroids, golden, ships, fighter, enemy, rival, ore, bank, upgrades, mining. Fighter stats are `src/data/fighter/upgrades.yaml`. Enemy spawn rate and capacity are `src/data/enemy/upgrades.yaml`. `GameConfig` loads them. |
+| `src/service/` | `GameService`: the only mutator the UI, HTTP, and MCP use |
+| `src/server/` | Thin HTTP and MCP adapters over `GameService`. MCP protocol, stdio, and the HTTP proxy are separate modules. |
+| `src/ui/` | React shell. `shell/` is the frame and the client session. Inline `style={{}}`. |
+
+`GameService` is the mutable surface: `newGame`, `join`, `state`, `options`,
+`act`, `save`, `load`. HTTP routes and MCP tools are generated from
+`src/service/api.ts`. Adding an operation means adding it there once.
+
+`options()` returns the legal actions. Miner upgrades are `{ "type": "upgradeMiner", "upgrade": "speed" | "damage" | "fireRate" | "carry" | "count" | "production" }`. `production` is units built each second on the miner bar. A queued miner costs `ships.units`. Rate 1 fills that bar in 60 seconds. Mining upgrades are `{ "type": "upgradeMining", "upgrade": "unlock" | "size" | "spawnRate" | "goldenSpawnRate" | "golden" | "tractorBeam" }`. `unlock` is the only mining action until the Mining tab is bought. `goldenSpawnRate` is offered only after golden asteroids are owned. `{ "type": "upgradeFighter", "upgrade": "speed" | "attackRate" | "health" | "damage" | "count" | "production" }` buys one of its stats. `count` starts at 0 and is how many fighters are kept. A destroyed fighter is built again until that number is full. `production` is units built each second on the fighter bar. A queued fighter costs `fighter.units`. Rate 1 fills that bar in 60 seconds. These are offered only after the tractor beam is owned. `{ "type": "upgradeEnemy", "upgrade": "spawnRate" | "capacity" | "health" | "damage" | "attackRate" }` is offered only after the tractor beam is owned, when the Enemy tab appears. That screen opens onto Fighter, and Spawn rate and Capacity are on that page. `spawnRate` shortens how long a destroyed rival waits to return. `capacity` shows the live rival fleet cap. That cap starts at 1. Reaching three player miners doubles it, and golden asteroids multiply it by three. The first Capacity purchase sets the cap to 10, and each later purchase adds 5. New ships launch immediately. Health, damage, and attack rate raise the rival ships. Each Capacity, health, damage, and attack-rate purchase multiplies the payout for a destroyed rival by 1.3, and those factors compound. Spawn rate does not. The Enemy menu shows the net multiplier. A kill pays the fighter bounty times that multiplier, rounded to the nearest dollar. `{ "type": "claimGift" }` pays the sidebar gift. The first payout is `bank.gift`, and each claim doubles the next one.
+`act` applies one of those and refuses anything else. The UI and the adapters do not grow their own copies of the rules.
+
+The screen is the Galactica shell: full-height column, 200px sidebar, a
+centered main panel, a footer bar, Settings with Dev Mode. Map is the live
+view. There is no turn and no end-turn batch. Local play advances from the
+animation frame. The HTTP server advances its own game every 100ms.
+
+## State and rendering
+
+`App` owns the `GameClient`, the view, and settings. No store, no context.
+
+The `Game` will be mutated in place. Bump `viewKey` after a change or React
+will keep showing the old screen.

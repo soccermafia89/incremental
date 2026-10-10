@@ -1,0 +1,11 @@
+# When the player's number reaches `at`, multiply the rival's matching stat by `by`.
+# Ships means ships on the field. Speed and carry use the number on that upgrade.
+# Speed starts at 10, so speedAt 8 is already reached. speedBy 1.5 is 50% faster.
+shipsAt: 3
+shipsBy: 2
+speedAt: 8
+speedBy: 1.5
+carryAt: 4
+carryBy: 2
+# A destroyed rival miner is replaced at its base after this long, until the fleet is back to its cap.
+replenishMs: 60000
