@@ -1788,6 +1788,8 @@ describe('mining map', () => {
         { ...ship('rival', target.x + 1, target.y, 'wait', null), id: 'ship-4', health: 20, maxHealth: 20 },
         { ...ship('rival', target.x + cell * 2, target.y, 'wait', null), id: 'ship-7', health: 20, maxHealth: 20 },
         { ...ship('rival', target.x + cell * 3, target.y, 'wait', null), id: 'ship-5', health: 20, maxHealth: 20 },
+        { ...ship('rival', target.x + cell * 4, target.y, 'wait', null), id: 'ship-8', health: 20, maxHealth: 20 },
+        { ...ship('rival', target.x + cell * 3, target.y + cell * 2, 'wait', null), id: 'ship-9', health: 20, maxHealth: 20 },
         { ...ship('player', beside.x, target.y, 'wait', null), id: 'ship-6', health: 20, maxHealth: 20 },
       ],
     }))
@@ -1797,8 +1799,10 @@ describe('mining map', () => {
     expect(health(missile, 'ship-2')).toBe(70)
     expect(health(missile, 'ship-3')).toBe(5)
     expect(health(missile, 'ship-4')).toBe(20)
-    expect(health(missile, 'ship-5')).toBe(20)
+    expect(health(missile, 'ship-5')).toBe(5)
     expect(health(missile, 'ship-7')).toBe(5)
+    expect(health(missile, 'ship-8')).toBe(20)
+    expect(health(missile, 'ship-9')).toBe(20)
     expect(health(missile, 'ship-6')).toBe(20)
     const gun = crowd(false)
     gun.advance(50)
@@ -1828,10 +1832,18 @@ describe('mining map', () => {
     const originX = Math.floor(target.x / cell) * cell
     const originY = Math.floor(target.y / cell) * cell
     const expected: string[] = []
-    for (let dy = -2; dy <= 2; dy += 1) {
-      for (let dx = -2; dx <= 2; dx += 1) expected.push(`${originX + dx * cell},${originY + dy * cell}`)
+    for (let dy = -3; dy <= 3; dy += 1) {
+      for (let dx = -3; dx <= 3; dx += 1) {
+        if (dx * dx + dy * dy > 12) continue
+        expected.push(`${originX + dx * cell},${originY + dy * cell}`)
+      }
     }
-    expect(blast[0].cells.map(spot => `${spot.x},${spot.y}`).sort()).toEqual(expected.sort())
+    const lit = blast[0].cells.map(spot => `${spot.x},${spot.y}`).sort()
+    expect(lit).toEqual(expected.sort())
+    expect(lit).toContain(`${originX + 3 * cell},${originY}`)
+    expect(lit).toContain(`${originX + 3 * cell},${originY + cell}`)
+    expect(lit).not.toContain(`${originX + 3 * cell},${originY + 2 * cell}`)
+    expect(lit).not.toContain(`${originX + 4 * cell},${originY}`)
     game.advance(50)
     expect(game.scene().blasts[0]?.bright).toBeCloseTo(0.875, 5)
     game.advance(400)

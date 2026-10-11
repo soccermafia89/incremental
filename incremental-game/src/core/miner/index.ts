@@ -1,5 +1,5 @@
 export { heading } from './flight'
-export { blastCells, Miners, MISSILE_BLAST_CELLS } from './Miners'
+export { blastCells, inMissileBlast, Miners } from './Miners'
 export { MinerUpgrades } from './Upgrades'
 export { MINER_UPGRADES, SHIP_MODES, SHIP_ROLES, copyShip, type HullCell, type MinerStats, type MinerUpgradeId, type ShipMode, type ShipRole, type ShipState, type Side, type UpgradeResult } from './types'
 export type { MinerWorld } from './world'

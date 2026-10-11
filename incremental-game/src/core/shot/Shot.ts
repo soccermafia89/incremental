@@ -13,7 +13,7 @@ export interface ShotState {
   damage: number
   /** True when a base cannon fired this shot. That kill pays no bounty. */
   cannon: boolean
-  /** A missile. Enemy ships within two map cells take half damage. */
+  /** A missile. Enemy ships inside the round blast take half damage. */
   splash: boolean
   /** A miner shot. Drawn as a yellow beam. Its damage and speed stay on the miner upgrades. */
   mining: boolean
@@ -30,7 +30,7 @@ export interface FiredShot {
   damage: number
   /** True when a base cannon fired this shot. That kill pays no bounty. */
   cannon: boolean
-  /** A missile. Enemy ships within two map cells take half damage. */
+  /** A missile. Enemy ships inside the round blast take half damage. */
   splash: boolean
   /** A miner shot. Drawn as a yellow beam. Its damage and speed stay on the miner upgrades. */
   mining: boolean

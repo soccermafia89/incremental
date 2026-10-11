@@ -118,7 +118,7 @@ components:
   missile:
     label: Missile
     # Eight stock guns. The unlock on Ship Upgrades is expensive as well.
-    # A hit also deals half damage to enemy ships within two map cells.
+    # A hit also deals half damage to enemy ships in the round blast, about three and a half cells out.
     units: 400
     weight: 2
     thrust: 0

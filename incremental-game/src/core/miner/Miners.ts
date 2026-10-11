@@ -7,8 +7,15 @@ import type { MinerWorld } from './world'
 
 const DUTY_MS = 1000
 
-/** Chebyshev reach of a missile blast, in map cells. The impact cell is inside it. */
-export const MISSILE_BLAST_CELLS = 2
+/** Squared radius of a missile blast, in map cells. About 3.5, so the cells form a circle. */
+const BLAST_RADIUS_SQ = 12
+/** Farthest cell index a blast can reach. 4² is already outside the circle. */
+const BLAST_REACH = 3
+
+/** True when a cell this many steps from the impact sits inside the blast circle. */
+export function inMissileBlast(dx: number, dy: number): boolean {
+  return dx * dx + dy * dy <= BLAST_RADIUS_SQ
+}
 
 /** Pixel origins of every map cell a missile blast lights, including the impact cell. */
 export function blastCells(x: number, y: number, cell: number): { x: number; y: number }[] {
@@ -16,8 +23,9 @@ export function blastCells(x: number, y: number, cell: number): { x: number; y: 
   const cx = Math.floor(x / cell)
   const cy = Math.floor(y / cell)
   const cells: { x: number; y: number }[] = []
-  for (let dy = -MISSILE_BLAST_CELLS; dy <= MISSILE_BLAST_CELLS; dy += 1) {
-    for (let dx = -MISSILE_BLAST_CELLS; dx <= MISSILE_BLAST_CELLS; dx += 1) {
+  for (let dy = -BLAST_REACH; dy <= BLAST_REACH; dy += 1) {
+    for (let dx = -BLAST_REACH; dx <= BLAST_REACH; dx += 1) {
+      if (!inMissileBlast(dx, dy)) continue
       cells.push({ x: (cx + dx) * cell, y: (cy + dy) * cell })
     }
   }
@@ -124,7 +132,7 @@ export class Miners {
     }
   }
 
-  /** Half damage to enemy ships within two map cells of a missile impact. The hit cell is left to the shot itself. */
+  /** Half damage to enemy ships in the blast circle. The hit cell is left to the shot itself. */
   splash(hit: { x: number; y: number; damage: number; side: Side; shipId: string | null }, world: MinerWorld): void {
     const half = Math.floor(hit.damage / 2)
     const cell = world.config.map.cell
@@ -134,9 +142,9 @@ export class Miners {
     const ids: string[] = []
     for (const ship of this.ships) {
       if (ship.side === hit.side || ship.id === hit.shipId) continue
-      const dx = Math.abs(Math.floor(ship.x / cell) - cx)
-      const dy = Math.abs(Math.floor(ship.y / cell) - cy)
-      if (dx > MISSILE_BLAST_CELLS || dy > MISSILE_BLAST_CELLS || (dx === 0 && dy === 0)) continue
+      const dx = Math.floor(ship.x / cell) - cx
+      const dy = Math.floor(ship.y / cell) - cy
+      if ((dx === 0 && dy === 0) || !inMissileBlast(dx, dy)) continue
       ids.push(ship.id)
     }
     for (const id of ids) this.hurt(id, half, world, true)
