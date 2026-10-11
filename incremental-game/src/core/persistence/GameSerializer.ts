@@ -2,12 +2,13 @@ import { flattenEnemyLevels } from '../../data/enemy/upgrades'
 import { flattenFighterLevels } from '../../data/fighter/upgrades'
 import { flattenMiningLevels } from '../../data/mining'
 import { flattenLevels } from '../../data/upgrades'
+import { flattenWeaponLevels } from '../../data/weapons/upgrades'
 import type { Game } from '../game/Game'
 import { SAVE_FORMAT_VERSION, type GameSnapshot } from './GameSnapshot'
 
 export class GameSerializer {
   static serialize(game: Game, savedAt: string = new Date().toISOString()): GameSnapshot {
-    const { minerLevels, miningLevels, fighterLevels, enemyLevels, ...live } = game.exportState()
+    const { minerLevels, miningLevels, fighterLevels, enemyLevels, weaponLevels, ...live } = game.exportState()
     return {
       version: SAVE_FORMAT_VERSION,
       savedAt,
@@ -16,6 +17,7 @@ export class GameSerializer {
       ...flattenMiningLevels(miningLevels),
       ...flattenFighterLevels(fighterLevels),
       ...flattenEnemyLevels(enemyLevels),
+      ...flattenWeaponLevels(weaponLevels),
     }
   }
 }

@@ -7,7 +7,10 @@ import type { GameSettings } from './ui/settings/GameSettings'
 import { FitMap } from './ui/map/FitMap'
 import { EnemyPanel } from './ui/upgrades/EnemyPanel'
 import { FighterPanel } from './ui/upgrades/FighterPanel'
-import { DesignerPanel } from './ui/upgrades/DesignerPanel'
+import { designFile } from './core/designer'
+import { DesignerPanel } from './ui/designer/DesignerPanel'
+import { downloadDesign } from './ui/designer/download'
+import { FleetPanel } from './ui/fleet/FleetPanel'
 import { MiningPanel } from './ui/upgrades/MiningPanel'
 import { ShipUpgradesPanel } from './ui/upgrades/ShipUpgradesPanel'
 import { FullScreen } from './ui/shell/FullScreen'
@@ -72,9 +75,16 @@ function App() {
           devMode={settings.devMode}
           showMining={!scene.mining.automine.owned}
           showDesigner={scene.designer.owned}
+          showFleet={scene.designer.owned}
           showFighter={scene.mining.tractorBeam.owned}
           showEnemy={scene.mining.tractorBeam.owned}
           gift={scene.gift}
+          onBuyUpgrades={() => {
+            void session.client.act({ type: 'upgradesToShipDesign' }).then(result => {
+              setActionError(result.ok ? null : result.error)
+              session.setFrame(value => value + 1)
+            })
+          }}
           onSkipLevelOne={() => {
             void session.client.act({ type: 'skipLevelOne' }).then(result => {
               setActionError(result.ok ? null : result.error)
@@ -94,6 +104,7 @@ function App() {
           remoteUrl={session.remoteUrl}
           actionError={actionError}
           fit={activeView === 'map'}
+          fill={activeView === 'designer'}
           nextMiner={scene.nextMiner}
           nextFighter={scene.nextFighter}
         >
@@ -134,6 +145,17 @@ function App() {
               }}
             />
           )}
+          {activeView === 'fleet' && scene.designer.owned && (
+            <FleetPanel
+              fleet={scene.fleet}
+              onChoose={design => {
+                void session.client.act({ type: 'chooseProduction', design }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+            />
+          )}
           {activeView === 'designer' && scene.designer.owned && (
             <DesignerPanel
               designer={scene.designer}
@@ -150,6 +172,36 @@ function App() {
                   session.setFrame(value => value + 1)
                 })
               }}
+              onSave={() => {
+                void session.client.act({ type: 'saveDesign' }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onExport={() => {
+                downloadDesign(designFile(game.exportState().parts))
+              }}
+              onReset={() => {
+                void session.client.act({ type: 'resetDesign' }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onImport={file => {
+                void file.text().then(text => {
+                  let blueprint: unknown
+                  try {
+                    blueprint = JSON.parse(text) as unknown
+                  } catch {
+                    setActionError('That file is not JSON.')
+                    return
+                  }
+                  return session.client.act({ type: 'importDesign', blueprint }).then(result => {
+                    setActionError(result.ok ? null : result.error)
+                    session.setFrame(value => value + 1)
+                  })
+                })
+              }}
             />
           )}
           {activeView === 'upgrades' && (
@@ -157,8 +209,27 @@ function App() {
               miner={scene.miner}
               showMiner={!scene.mining.automine.owned}
               designer={scene.designer}
+              weapon={scene.weapon}
               onUnlockDesigner={() => {
                 void session.client.act({ type: 'unlockDesigner' }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUnlockWeapon={weapon => {
+                void session.client.act({ type: 'unlockWeapon', weapon }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUnlockEngine={engine => {
+                void session.client.act({ type: 'unlockEngine', engine }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUpgradeWeapon={upgrade => {
+                void session.client.act({ type: 'upgradeWeapon', upgrade }).then(result => {
                   setActionError(result.ok ? null : result.error)
                   session.setFrame(value => value + 1)
                 })

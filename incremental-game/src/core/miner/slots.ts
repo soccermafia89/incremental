@@ -1,3 +1,4 @@
+import { weaponStop } from './range'
 import type { ShipState } from './types'
 import type { MinerWorld } from './world'
 
@@ -8,7 +9,7 @@ export function fireSlot(
   ships: ShipState[],
   world: MinerWorld,
 ): { x: number; y: number } {
-  const hold = Math.max(0, world.config.ships.weaponRange - 0.5)
+  const hold = Math.max(0, weaponStop(ship, world) - 0.5)
   const home = world.layout.home(ship.side)
   const facing = Math.atan2(home.y - asteroid.y, home.x - asteroid.x)
   const mates = sameRock(ship, asteroid.id, ships)
@@ -35,7 +36,7 @@ export function attackSlot(
   ships: ShipState[],
   world: MinerWorld,
 ): { x: number; y: number } {
-  const hold = Math.max(0, world.config.ships.weaponRange - 0.5)
+  const hold = Math.max(0, weaponStop(ship, world) - 0.5)
   const home = world.layout.home(ship.side)
   const facing = Math.atan2(home.y - target.y, home.x - target.x)
   const mates = ships

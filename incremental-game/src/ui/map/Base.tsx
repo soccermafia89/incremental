@@ -5,6 +5,7 @@ export function Base({
   fill,
   stroke,
   marker,
+  combat,
 }: {
   x: number
   y: number
@@ -12,12 +13,14 @@ export function Base({
   fill: string
   stroke: string
   marker: 'base' | 'rival-base'
+  combat: boolean
 }) {
   const size = radius * 2
   return (
     <div
       data-base={marker === 'base' ? '' : undefined}
       data-rival-base={marker === 'rival-base' ? '' : undefined}
+      data-mode={combat ? 'combat' : 'stasis'}
       style={{
         position: 'absolute',
         left: x - radius,
@@ -37,18 +40,7 @@ export function Base({
       }}
     >
       <span>Base</span>
-      <div
-        data-cannon=""
-        style={{
-          position: 'absolute',
-          left: marker === 'base' ? size - 8 : -10,
-          top: radius - 4,
-          width: 18,
-          height: 8,
-          borderRadius: 2,
-          backgroundColor: '#e2e8f0',
-        }}
-      />
+      <span style={{ fontSize: 10, fontWeight: 'normal', color: '#cbd5e1' }}>{combat ? 'Combat' : 'Stasis'}</span>
     </div>
   )
 }

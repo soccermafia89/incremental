@@ -4,10 +4,12 @@ import type { Bank } from '../base/Bank'
 import type { MapLayout } from '../map/Layout'
 import type { MiningUpgrades } from '../mining/Mining'
 import type { OreField } from '../ore/OreField'
-import type { Volley } from '../shot/Shot'
+import type { FiredShot, Volley } from '../shot/Shot'
 import type { EnemyUpgrades } from '../enemy/Upgrades'
 import type { FighterUpgrades } from '../fighter/Upgrades'
+import type { WeaponUpgrades } from '../weapons/Upgrades'
 import type { MinerUpgrades } from './Upgrades'
+import type { Side } from './types'
 
 /** The map pieces a miner reads and writes while it works. */
 export interface MinerWorld {
@@ -19,6 +21,11 @@ export interface MinerWorld {
   upgrades: MinerUpgrades
   fighterUpgrades: FighterUpgrades
   enemyUpgrades: EnemyUpgrades
+  weaponUpgrades: WeaponUpgrades
   mining: MiningUpgrades
   bank: Bank
+  /** Apply a hit now. A laser uses this instead of a traveling shot. */
+  hit(shot: FiredShot): void
+  /** Draw a line from a ship to its target for this step. */
+  beam(from: { x: number; y: number }, to: { x: number; y: number }, side: Side): void
 }

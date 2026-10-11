@@ -1,10 +1,28 @@
 import { separateShips } from '../motion/separate'
+import { ShipDesign } from '../designer'
 import { heading, moveMiners } from './flight'
 import { claimOre, engageNearest, ensureDuty, fights, huntNearest, release, scoopCells } from './jobs'
-import { copyShip, type ShipRole, type ShipState, type Side } from './types'
+import { copyShip, type HullCell, type ShipRole, type ShipState, type Side } from './types'
 import type { MinerWorld } from './world'
 
 const DUTY_MS = 1000
+
+/** Chebyshev reach of a missile blast, in map cells. The impact cell is inside it. */
+export const MISSILE_BLAST_CELLS = 2
+
+/** Pixel origins of every map cell a missile blast lights, including the impact cell. */
+export function blastCells(x: number, y: number, cell: number): { x: number; y: number }[] {
+  if (cell < 1) return []
+  const cx = Math.floor(x / cell)
+  const cy = Math.floor(y / cell)
+  const cells: { x: number; y: number }[] = []
+  for (let dy = -MISSILE_BLAST_CELLS; dy <= MISSILE_BLAST_CELLS; dy += 1) {
+    for (let dx = -MISSILE_BLAST_CELLS; dx <= MISSILE_BLAST_CELLS; dx += 1) {
+      cells.push({ x: (cx + dx) * cell, y: (cy + dy) * cell })
+    }
+  }
+  return cells
+}
 
 export class Miners {
   private ships: ShipState[]
@@ -45,9 +63,10 @@ export class Miners {
     else engageNearest(ship, world)
   }
 
-  spawnFighter(world: MinerWorld): void {
+  spawnFighter(world: MinerWorld, craft: ShipState['craft'], hullHealth: number | null): void {
     const ship = this.make('player', 'fighter', world)
-    const health = world.fighterUpgrades.health(world.config)
+    ship.craft = craft
+    const health = hullHealth ?? world.fighterUpgrades.health(world.config)
     ship.health = health
     ship.maxHealth = health
     this.ships.push(ship)
@@ -64,10 +83,10 @@ export class Miners {
     }
   }
 
-  /** Buying fighter health adds that step to the fighter already on the field. */
+  /** Buying fighter health adds that step to each default fighter already on the field. */
   raiseFighterHealth(added: number, nextMax: number): void {
     for (const ship of this.ships) {
-      if (ship.role !== 'fighter') continue
+      if (ship.role !== 'fighter' || ship.craft !== null) continue
       ship.maxHealth = nextMax
       ship.health = Math.min(nextMax, ship.health + added)
     }
@@ -78,18 +97,15 @@ export class Miners {
     return ship ? { x: ship.x, y: ship.y } : undefined
   }
 
-  /** The closest ship of the other side that sits inside `range` of `origin`. */
-  nearestEnemy(side: Side, origin: { x: number; y: number }, range: number): { id: string; x: number; y: number } | undefined {
-    let nearest: { id: string; x: number; y: number } | undefined
-    let best = range
+  /** Ships of the other side inside `range` of `origin`. */
+  enemiesWithin(side: Side, origin: { x: number; y: number }, range: number): { id: string; x: number; y: number }[] {
+    const found: { id: string; x: number; y: number }[] = []
     for (const ship of this.ships) {
       if (ship.side === side) continue
-      const distance = Math.hypot(ship.x - origin.x, ship.y - origin.y)
-      if (distance > best) continue
-      best = distance
-      nearest = { id: ship.id, x: ship.x, y: ship.y }
+      if (Math.hypot(ship.x - origin.x, ship.y - origin.y) > range) continue
+      found.push({ id: ship.id, x: ship.x, y: ship.y })
     }
-    return nearest
+    return found
   }
 
   /** Damage a ship. A rival killed by a ship pays the bounty. A base cannon kill does not. */
@@ -106,6 +122,24 @@ export class Miners {
     for (const other of this.ships) {
       if (other.targetId === id) release(other, this.ships, world)
     }
+  }
+
+  /** Half damage to enemy ships within two map cells of a missile impact. The hit cell is left to the shot itself. */
+  splash(hit: { x: number; y: number; damage: number; side: Side; shipId: string | null }, world: MinerWorld): void {
+    const half = Math.floor(hit.damage / 2)
+    const cell = world.config.map.cell
+    if (half < 1 || cell < 1) return
+    const cx = Math.floor(hit.x / cell)
+    const cy = Math.floor(hit.y / cell)
+    const ids: string[] = []
+    for (const ship of this.ships) {
+      if (ship.side === hit.side || ship.id === hit.shipId) continue
+      const dx = Math.abs(Math.floor(ship.x / cell) - cx)
+      const dy = Math.abs(Math.floor(ship.y / cell) - cy)
+      if (dx > MISSILE_BLAST_CELLS || dy > MISSILE_BLAST_CELLS || (dx === 0 && dy === 0)) continue
+      ids.push(ship.id)
+    }
+    for (const id of ids) this.hurt(id, half, world, true)
   }
 
   move(dtMs: number, world: MinerWorld, roll: () => number): void {
@@ -127,7 +161,7 @@ export class Miners {
     for (const ship of this.ships) ensureDuty(ship, this.ships, world)
   }
 
-  scene(world: MinerWorld): { id: string; x: number; y: number; carrying: boolean; heading: number; side: Side; role: ShipRole; health: number; maxHealth: number }[] {
+  scene(world: MinerWorld): { id: string; x: number; y: number; carrying: boolean; heading: number; side: Side; role: ShipRole; health: number; maxHealth: number; hull: HullCell[] | null }[] {
     return this.ships.map(ship => ({
       id: ship.id,
       x: ship.x,
@@ -138,6 +172,9 @@ export class Miners {
       role: ship.role,
       health: ship.health,
       maxHealth: ship.maxHealth,
+      hull: ship.craft !== null && ship.craft.cells.length > 0
+        ? ship.craft.cells.map(cell => ({ ...cell }))
+        : ShipDesign.minerHull(world.config),
     }))
   }
 
@@ -157,6 +194,17 @@ export class Miners {
   /** Ships that share a map cell are pushed until their bodies no longer overlap. */
   private clearOverlap(world: MinerWorld): void {
     separateShips(this.ships, world.config.map.cell, world.config.ships.radius, world.config.map)
+  }
+
+  /** Drop a haul and look for a fight. Automine does not call the rival fleet home. */
+  holdTheField(world: MinerWorld): void {
+    for (const ship of this.ships) {
+      if (ship.side !== 'rival') continue
+      if (ship.mode === 'hunt' || ship.mode === 'attack') continue
+      ship.cargo = 0
+      ship.cargoValue = 0
+      huntNearest(ship, this.ships, world)
+    }
   }
 
   /** Our miners leave the map. Fighters and the rival fleet stay. */
@@ -203,6 +251,7 @@ export class Miners {
       role,
       health,
       maxHealth: health,
+      craft: null,
     }
     this.nextId += 1
     return ship

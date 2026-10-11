@@ -13,6 +13,10 @@ export interface ShotState {
   damage: number
   /** True when a base cannon fired this shot. That kill pays no bounty. */
   cannon: boolean
+  /** A missile. Enemy ships within two map cells take half damage. */
+  splash: boolean
+  /** A miner shot. Drawn as a yellow beam. Its damage and speed stay on the miner upgrades. */
+  mining: boolean
 }
 
 export interface FiredShot {
@@ -26,6 +30,10 @@ export interface FiredShot {
   damage: number
   /** True when a base cannon fired this shot. That kill pays no bounty. */
   cannon: boolean
+  /** A missile. Enemy ships within two map cells take half damage. */
+  splash: boolean
+  /** A miner shot. Drawn as a yellow beam. Its damage and speed stay on the miner upgrades. */
+  mining: boolean
 }
 
 export class Volley {
@@ -57,6 +65,8 @@ export class Volley {
       side: shot.side,
       damage: shot.damage,
       cannon: shot.cannon,
+      splash: shot.splash,
+      mining: shot.mining,
     })
     this.nextId += 1
   }
@@ -76,7 +86,7 @@ export class Volley {
         shot.targetX = body.x
         shot.targetY = body.y
       }
-      const speed = shot.cannon ? cannonSpeed : shotSpeed
+      const speed = shot.cannon ? cannonSpeed : shot.splash ? shotSpeed / 2 : shotSpeed
       const hit = moveToward(shot, { x: shot.targetX, y: shot.targetY }, speed * (dtMs / 1000))
       if (!hit) {
         stillFlying.push(shot)
@@ -87,10 +97,18 @@ export class Volley {
     this.shots = stillFlying
   }
 
-  scene(): { id: string; x: number; y: number; side: Side }[] {
+  scene(): { id: string; x: number; y: number; side: Side; splash: boolean; mining: boolean; angle: number }[] {
     return this.shots
       .filter(shot => !shot.cannon)
-      .map(shot => ({ id: shot.id, x: shot.x, y: shot.y, side: shot.side }))
+      .map(shot => ({
+        id: shot.id,
+        x: shot.x,
+        y: shot.y,
+        side: shot.side,
+        splash: shot.splash,
+        mining: shot.mining,
+        angle: Math.atan2(shot.targetY - shot.y, shot.targetX - shot.x),
+      }))
   }
 
   save(): { nextShotId: number; shots: ShotState[] } {

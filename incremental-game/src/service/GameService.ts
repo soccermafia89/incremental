@@ -3,21 +3,16 @@ import { MINER_UPGRADES, type MinerUpgradeId } from '../core/miner'
 import { ENEMY_UPGRADE_IDS, type EnemyUpgradeId } from '../data/enemy/upgrades'
 import { FIGHTER_UPGRADE_IDS, type FighterUpgradeId } from '../data/fighter/upgrades'
 import { AUTOMINE, GOLDEN, MINING_IDS, MINING_UNLOCK, TRACTOR_BEAM, type MiningPurchase } from '../data/mining'
+import { isEngineUnlock, isWeaponUnlock } from '../data/designer'
+import { WEAPON_UPGRADE_IDS, type WeaponUpgradeId } from '../data/weapons/upgrades'
 import type { GameSnapshot } from '../core/persistence/GameSnapshot'
 import { GameDeserializer } from '../core/persistence/GameDeserializer'
 import { GameSerializer } from '../core/persistence/GameSerializer'
-import type { DesignResult } from '../core/designer/Design'
+import { designError, type DesignResult } from '../core/designer'
 import type { GameAction } from './actions'
 import { SeatTable } from './SeatTable'
 
 const SEAT_ID = 'player'
-
-const DESIGN_ERROR: Record<Exclude<DesignResult, 'ok' | 'unknown'>, string> = {
-  attach: 'That piece does not attach to the ship.',
-  overlap: 'That space is already taken.',
-  bounds: 'That sits outside the grid.',
-  disconnect: 'That would leave part of the ship unattached.',
-}
 
 function isMinerUpgrade(value: unknown): value is MinerUpgradeId {
   return typeof value === 'string' && (MINER_UPGRADES as readonly string[]).includes(value)
@@ -25,6 +20,19 @@ function isMinerUpgrade(value: unknown): value is MinerUpgradeId {
 
 function isEnemyUpgrade(value: unknown): value is EnemyUpgradeId {
   return typeof value === 'string' && (ENEMY_UPGRADE_IDS as readonly string[]).includes(value)
+}
+
+function weaponStatReady(
+  upgrade: WeaponUpgradeId,
+  state: { laser: boolean; missile: boolean },
+): boolean {
+  if (upgrade === 'laserRange' || upgrade === 'laserEnergy') return state.laser
+  if (upgrade === 'missileFireRate' || upgrade === 'missileDamage') return state.missile
+  return true
+}
+
+function isWeaponUpgrade(value: unknown): value is WeaponUpgradeId {
+  return typeof value === 'string' && (WEAPON_UPGRADE_IDS as readonly string[]).includes(value)
 }
 
 function isFighterUpgrade(value: unknown): value is FighterUpgradeId {
@@ -94,7 +102,7 @@ export class GameService {
             .map(upgrade => ({ type: 'upgradeMining', upgrade })),
           { type: 'upgradeMining', upgrade: GOLDEN },
           { type: 'upgradeMining', upgrade: TRACTOR_BEAM },
-          { type: 'upgradeMining', upgrade: AUTOMINE },
+          ...(state.tractorBeam ? [{ type: 'upgradeMining', upgrade: AUTOMINE }] : []),
         ]
         : [{ type: 'upgradeMining', upgrade: MINING_UNLOCK }]
     const miners = state.automine
@@ -106,7 +114,28 @@ export class GameService {
     const enemy = state.tractorBeam
       ? ENEMY_UPGRADE_IDS.map(upgrade => ({ type: 'upgradeEnemy', upgrade }))
       : []
-    const designer = state.shipDesigner ? [] : [{ type: 'unlockDesigner' }]
+    const designer = state.shipDesigner ? [{ type: 'saveDesign' }] : [{ type: 'unlockDesigner' }]
+    const engines = state.shipDesigner
+      ? (['mediumEngine', 'largeEngine'] as const)
+          .filter(engine => !state[engine])
+          .map(engine => ({ type: 'unlockEngine', engine }))
+      : []
+    const weapons = state.shipDesigner
+      ? (['laser', 'missile'] as const)
+          .filter(weapon => !state[weapon])
+          .map(weapon => ({ type: 'unlockWeapon', weapon }))
+      : []
+    const weaponStats = state.shipDesigner
+      ? WEAPON_UPGRADE_IDS
+          .filter(upgrade => weaponStatReady(upgrade, state))
+          .map(upgrade => ({ type: 'upgradeWeapon', upgrade }))
+      : []
+    const fleet = state.shipDesigner
+      ? [
+          { type: 'chooseProduction', design: 'fighter' },
+          ...(state.savedDesign ? [{ type: 'chooseProduction', design: 'saved' }] : []),
+        ]
+      : []
     return {
       ok: true,
       data: [
@@ -115,6 +144,11 @@ export class GameService {
         ...fighter,
         ...enemy,
         ...designer,
+        ...engines,
+        ...weapons,
+        ...weaponStats,
+        ...fleet,
+        { type: 'upgradesToShipDesign' },
         { type: 'skipLevelOne' },
         { type: 'claimGift' },
       ],
@@ -138,7 +172,7 @@ export class GameService {
       return { ok: false, error: 'Not enough money', reason: 'cant-afford' }
     }
     if (upgraded !== 'ok') {
-      return { ok: false, error: DESIGN_ERROR[upgraded], reason: upgraded }
+      return { ok: false, error: designError(upgraded), reason: upgraded }
     }
     this.revision += 1
     return { ok: true, data: { revision: this.revision } }
@@ -148,6 +182,10 @@ export class GameService {
     if (!this.game) return 'unknown'
     if (action.type === 'claimGift') {
       this.game.claimGift()
+      return 'ok'
+    }
+    if (action.type === 'upgradesToShipDesign') {
+      this.game.upgradesToShipDesign()
       return 'ok'
     }
     if (action.type === 'skipLevelOne') {
@@ -171,9 +209,39 @@ export class GameService {
       if (this.game.exportState().automine) return 'unknown'
       if (action.upgrade !== MINING_UNLOCK && !this.game.exportState().miningUnlocked) return 'unknown'
       if (action.upgrade === 'goldenSpawnRate' && !this.game.exportState().golden) return 'unknown'
+      if (action.upgrade === 'automine' && !this.game.exportState().tractorBeam) return 'unknown'
       return this.game.upgradeMining(action.upgrade)
     }
     if (action.type === 'unlockDesigner') return this.game.unlockDesigner()
+    if (action.type === 'upgradeWeapon') {
+      if (!isWeaponUpgrade(action.upgrade)) return 'unknown'
+      return this.game.upgradeWeapon(action.upgrade)
+    }
+    if (action.type === 'unlockEngine') {
+      if (typeof action.engine !== 'string' || !isEngineUnlock(action.engine)) return 'unknown'
+      return this.game.unlockEngine(action.engine)
+    }
+    if (action.type === 'unlockWeapon') {
+      if (typeof action.weapon !== 'string' || !isWeaponUnlock(action.weapon)) return 'unknown'
+      return this.game.unlockWeapon(action.weapon)
+    }
+    if (action.type === 'saveDesign') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      return this.game.saveDesign()
+    }
+    if (action.type === 'resetDesign') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      return this.game.resetDesign()
+    }
+    if (action.type === 'importDesign') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      return this.game.importDesign(action.blueprint)
+    }
+    if (action.type === 'chooseProduction') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      if (typeof action.design !== 'string') return 'unknown'
+      return this.game.chooseProduction(action.design)
+    }
     if (action.type === 'placeComponent') {
       if (!this.game.exportState().shipDesigner) return 'unknown'
       if (typeof action.component !== 'string' || !whole(action.x) || !whole(action.y) || !whole(action.rotation)) {

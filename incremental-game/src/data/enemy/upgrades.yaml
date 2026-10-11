@@ -31,10 +31,10 @@ damage:
   max: 10
   cost: 20
   bounty: 1.3
-# Rate 1 is one shot per shotIntervalMs. Higher rates shorten it. Golden still speeds it up.
+# Rate 1 is one shot every 4 seconds, four times ships.shotIntervalMs. Higher rates shorten it. Golden still speeds it up.
 attackRate:
   start: 1
   step: 1
-  max: 5
+  max: 4
   cost: 20
   bounty: 1.3

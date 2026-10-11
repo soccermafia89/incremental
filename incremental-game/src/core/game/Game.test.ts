@@ -3,7 +3,9 @@ import { blankEnemyLevels } from '../../data/enemy/upgrades'
 import { blankFighterLevels } from '../../data/fighter/upgrades'
 import { blankMiningLevels } from '../../data/mining'
 import { blankLevels } from '../../data/upgrades'
+import { blankWeaponLevels } from '../../data/weapons/upgrades'
 import { GameImpl, type MapState } from './Game'
+import { ShipDesign } from '../designer'
 import { config, tuned } from './fixture'
 
 describe('mining map', () => {
@@ -27,6 +29,29 @@ describe('mining map', () => {
     }
     expect(scene.money).toBe(config.bank.startingMoney)
     expect(scene.spawnInMs).toBe(config.asteroids.spawnMs)
+  })
+
+  it('draws a miner as a core, an engine, and a yellow mining laser', () => {
+    const hull = ShipDesign.minerHull(config)
+    const scene = GameImpl.create(config, 1).scene()
+    expect(scene.ships.map(ship => ship.hull)).toEqual([hull, hull])
+    const game = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 500, shotIntervalMs: 10_000 },
+      cannon: { range: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [{ id: 'asteroid-1', x: 220, y: 325, health: 100, maxHealth: 100, kind: 'normal' }],
+      ships: [ship('player', 100, 325, 'shoot', 'asteroid-1')],
+    }))
+    game.advance(50)
+    expect(game.scene().shots[0]).toMatchObject({ mining: true, splash: false })
+    expect(game.scene().asteroids[0]?.health).toBe(100)
+    const loaded = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 500, shotIntervalMs: 10_000 },
+      cannon: { range: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), game.exportState())
+    expect(loaded.exportState().shots[0]?.mining).toBe(true)
   })
 
   it('shoots the asteroid apart, then hauls the ore it drops', () => {
@@ -148,6 +173,7 @@ describe('mining map', () => {
         role: 'miner',
         health: 20,
         maxHealth: 20,
+        craft: null,
       }],
     }))
     advanceUntil(game, () => {
@@ -220,7 +246,7 @@ describe('mining map', () => {
     game.advance(50)
     const ships = game.exportState().ships
     expect(ships.find(miner => miner.side === 'player')?.fireCooldownMs).toBe(450)
-    expect(ships.find(miner => miner.side === 'rival')?.fireCooldownMs).toBe(950)
+    expect(ships.find(miner => miner.side === 'rival')?.fireCooldownMs).toBe(3950)
   })
 
   it('holds a second nugget before flying home', () => {
@@ -328,6 +354,20 @@ describe('mining map', () => {
     expect(fighters.exportState().pendingFighters).toBe(0)
     expect(fighters.exportState().pendingMiners).toBe(1)
     expect(fighters.upgradeFighterStat('production')).toBe('broke')
+
+    const heavy = GameImpl.restore(tuned({
+      ships: { speed: 0 },
+      fighter: { units: 1000 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      pendingFighters: 1,
+      asteroids: [],
+      ships: [],
+    }))
+    expect(heavy.scene().fighter.values.production).toBeCloseTo(1000 / 60, 5)
+    heavy.advance(30_000)
+    expect(heavy.scene().nextFighter?.progress).toBeCloseTo(0.5, 5)
+    expect(heavy.exportState().pendingFighters).toBe(1)
   })
 
   it('doubles the rival fleet once the third ship launches, and golden multiplies that', () => {
@@ -654,24 +694,60 @@ describe('mining map', () => {
     expect(game.exportState().ships.find(miner => miner.id === 'ship-1')?.health).toBe(12)
   })
 
-  it('has each base shoot the nearest enemy inside cannon range', () => {
-    const parked = (ships: MapState['ships'], cannon?: Partial<typeof config.cannon>) => GameImpl.restore(tuned({
+  it('wakes a base inside the short range and then shoots every enemy out to cannon range', () => {
+    const parked = (ships: MapState['ships'], cannon?: Partial<typeof config.cannon>, combat?: Partial<Pick<MapState, 'baseCombat' | 'rivalCombat'>>) => GameImpl.restore(tuned({
       ships: { speed: 0, shotSpeed: 0 },
       asteroids: { spawnMs: 999_999 },
       cannon,
-    }), fresh({ asteroids: [], ships }))
+    }), fresh({ asteroids: [], ships, ...combat }))
     const inRange = parked([
       ship('player', config.map.baseX, config.map.baseY, 'wait', null),
-      ship('rival', config.map.baseX + config.cannon.range - 10, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.wake - 10, config.map.baseY, 'wait', null),
     ], { shotSpeed: 0 })
     inRange.advance(50)
     const first = inRange.exportState().shots
     expect(first).toHaveLength(1)
     expect(first[0]).toMatchObject({ side: 'player', damage: config.cannon.damage, shipId: 'ship-2', cannon: true })
+    expect(inRange.exportState().baseCombat).toBe(true)
     inRange.advance(50)
     expect(inRange.exportState().shots).toHaveLength(1)
     inRange.advance(50)
     expect(inRange.exportState().shots).toHaveLength(2)
+
+    const outer = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.wake + 20, config.map.baseY, 'wait', null),
+    ])
+    outer.advance(1000)
+    expect(outer.exportState().shots).toHaveLength(0)
+    expect(outer.exportState().baseCombat).toBe(false)
+
+    const holding = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.range - 10, config.map.baseY, 'wait', null),
+    ], { shotSpeed: 0, damage: 1 }, { baseCombat: true })
+    holding.advance(50)
+    expect(holding.exportState().shots).toHaveLength(1)
+    expect(holding.exportState().baseCombat).toBe(true)
+    const saved = holding.exportState()
+    expect(GameImpl.restore(tuned({ ships: { speed: 0 }, asteroids: { spawnMs: 999_999 }, cannon: { shotSpeed: 0, damage: 1 } }), saved).exportState().baseCombat).toBe(true)
+
+    const volley = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.wake - 10, config.map.baseY, 'wait', null),
+      { ...ship('rival', config.map.baseX + config.cannon.range - 10, config.map.baseY, 'wait', null), id: 'ship-3' },
+    ], { shotSpeed: 0, damage: 1 })
+    volley.advance(50)
+    expect(volley.exportState().shots.map(shot => shot.shipId).sort()).toEqual(['ship-2', 'ship-3'])
+    expect(volley.scene().lasers).toHaveLength(2)
+    expect(volley.exportState().baseCombat).toBe(true)
+
+    const asleep = parked([
+      ship('player', config.map.baseX, config.map.baseY, 'wait', null),
+    ], undefined, { baseCombat: true })
+    asleep.advance(50)
+    expect(asleep.exportState().shots).toHaveLength(0)
+    expect(asleep.exportState().baseCombat).toBe(false)
 
     const far = parked([
       ship('rival', config.map.baseX + config.cannon.range + 1, config.map.baseY, 'wait', null),
@@ -703,7 +779,7 @@ describe('mining map', () => {
 
     const zapped = parked([
       ship('player', config.map.baseX, config.map.baseY, 'wait', null),
-      ship('rival', config.map.baseX + 200, config.map.baseY, 'wait', null),
+      ship('rival', config.map.baseX + config.cannon.wake - 10, config.map.baseY, 'wait', null),
     ])
     zapped.advance(50)
     expect(zapped.exportState().ships.map(miner => miner.side)).toEqual(['player'])
@@ -711,9 +787,10 @@ describe('mining map', () => {
     expect(zapped.scene().lasers[0]).toMatchObject({
       x0: config.map.baseX,
       y0: config.map.baseY,
-      x1: config.map.baseX + 200,
+      x1: config.map.baseX + config.cannon.wake - 10,
       y1: config.map.baseY,
       side: 'player',
+      source: 'cannon',
     })
   })
 
@@ -824,12 +901,14 @@ describe('mining map', () => {
     expect(game.exportState().pendingFighters).toBe(1)
     expect(game.scene().nextFighter?.progress).toBe(0)
     expect(game.scene().fighter.values.count).toBe(1)
-    game.advance(950)
+    game.advance(57_000)
     expect(game.exportState().ships.filter(miner => miner.role === 'fighter')).toHaveLength(0)
     expect(game.scene().nextFighter?.progress).toBeCloseTo(0.95)
-    game.advance(50)
+    expect(game.scene().nextFighter?.cells).toEqual(ShipDesign.minerHull(config))
+    game.advance(3_000)
     const fighter = game.exportState().ships.find(miner => miner.role === 'fighter')
     expect(fighter?.side).toBe('player')
+    expect(game.scene().ships.find(miner => miner.role === 'fighter')?.hull).toEqual(ShipDesign.minerHull(config))
     expect(fighter?.health).toBe(20)
     expect(fighter?.targetId).toBe('ship-2')
     expect(game.scene().nextFighter).toBeNull()
@@ -926,7 +1005,7 @@ describe('mining map', () => {
     }))
     expect(launching.upgradeFighterStat('health')).toBe('ok')
     expect(launching.upgradeFighterStat('count')).toBe('ok')
-    launching.advance(1000)
+    launching.advance(60_000)
     expect(launching.exportState().ships.find(miner => miner.role === 'fighter')?.health).toBe(30)
 
     const broke = GameImpl.restore(tuned({ asteroids: { spawnMs: 999_999 } }), fresh({
@@ -962,10 +1041,10 @@ describe('mining map', () => {
     expect(game.scene().fighter.values.count).toBe(2)
     expect(game.scene().fighter.costs.count).toBe(2)
     expect(game.exportState().pendingFighters).toBe(2)
-    game.advance(1000)
+    game.advance(60_000)
     expect(game.exportState().ships.filter(miner => miner.role === 'fighter')).toHaveLength(1)
     expect(game.exportState().pendingFighters).toBe(1)
-    game.advance(1000)
+    game.advance(60_000)
     expect(game.exportState().ships.filter(miner => miner.role === 'fighter')).toHaveLength(2)
     expect(game.upgradeFighterStat('count')).toBe('broke')
 
@@ -1137,7 +1216,7 @@ describe('mining map', () => {
     expect(game.scene().enemy.bounty).toBeCloseTo(1.3 ** 3)
     game.advance(50)
     expect(game.exportState().shots.find(shot => shot.side === 'rival')?.damage).toBe(2)
-    expect(rival()?.fireCooldownMs).toBe(450)
+    expect(rival()?.fireCooldownMs).toBe(1950)
 
     const killing = GameImpl.restore(tuned({
       ships: { speed: 0, shotSpeed: 5000, weaponRange: 500, shotIntervalMs: 10_000 },
@@ -1210,6 +1289,36 @@ describe('mining map', () => {
     expect(partialSkippedState).toEqual(partialBoughtState)
   })
 
+  it('maxes every upgrade through the ship designer without spending', () => {
+    const game = GameImpl.create(tuned({ bank: { startingMoney: 40 }, ships: { speed: 0 } }), 1)
+    game.upgradesToShipDesign()
+    expect(game.scene().money).toBe(40)
+    expect(game.scene().miner.costs.speed).toBeNull()
+    expect(game.scene().miner.costs.production).toBeNull()
+    expect(game.scene().mining.costs.size).toBeNull()
+    expect(game.scene().mining.costs.goldenSpawnRate).toBeNull()
+    expect(game.exportState().tractorBeam).toBe(true)
+    expect(game.scene().fighter.costs.speed).toBeNull()
+    expect(game.scene().fighter.costs.count).toBeNull()
+    expect(game.scene().enemy.costs.spawnRate).toBeNull()
+    expect(game.scene().enemy.costs.capacity).toBeNull()
+    expect(game.exportState().shipDesigner).toBe(true)
+    expect(game.exportState().laser).toBe(true)
+    expect(game.exportState().missile).toBe(true)
+    expect(game.exportState().mediumEngine).toBe(true)
+    expect(game.exportState().largeEngine).toBe(true)
+    expect(game.exportState().automine).toBe(true)
+    expect(game.exportState().pendingMiners).toBe(0)
+    expect(game.exportState().asteroids).toEqual([])
+    expect(game.exportState().ships.filter(miner => miner.side === 'player')).toEqual([])
+    expect(game.exportState().pendingFighters).toBe(config.fighterUpgrades.count.max)
+    game.upgradesToShipDesign()
+    expect(game.scene().money).toBe(40)
+    expect(game.exportState().automine).toBe(true)
+    expect(game.exportState().pendingMiners).toBe(0)
+    expect(game.exportState().pendingFighters).toBe(config.fighterUpgrades.count.max)
+  })
+
   it('maxes every miner and mining upgrade', () => {
     const game = GameImpl.create(tuned({ ships: { speed: 0 } }), 1)
     const rivals = () => game.exportState().ships.filter(miner => miner.side === 'rival')
@@ -1252,6 +1361,7 @@ describe('mining map', () => {
     }), fresh({
       money: 9_999,
       miningUnlocked: true,
+      tractorBeam: true,
       asteroids: [
         { id: 'rock-1', x: 500, y: 300, health: 5, maxHealth: 5, kind: 'normal' },
       ],
@@ -1260,6 +1370,16 @@ describe('mining map', () => {
       ],
     }))
     expect(game.upgradeMining('automine')).toBe('broke')
+    const early = GameImpl.restore(tuned({ asteroids: { spawnMs: 999_999 } }), fresh({
+      money: 10_000,
+      miningUnlocked: true,
+      asteroids: [{ id: 'rock-1', x: 500, y: 300, health: 5, maxHealth: 5, kind: 'normal' }],
+      ships: [ship('rival', 800, config.map.baseY, 'back', null)],
+    }))
+    expect(early.upgradeMining('automine')).toBe('maxed')
+    expect(early.exportState().automine).toBe(false)
+    expect(early.scene().money).toBe(10_000)
+    expect(early.exportState().ships[0]?.mode).toBe('back')
     expect(game.scene().money).toBe(9_999)
     expect(game.exportState().asteroids).toHaveLength(1)
     expect(game.exportState().ships).toHaveLength(1)
@@ -1269,6 +1389,7 @@ describe('mining map', () => {
     }), fresh({
       money: 10_000,
       miningUnlocked: true,
+      tractorBeam: true,
       golden: true,
       pendingMiners: 2,
       minerWork: 500,
@@ -1278,7 +1399,7 @@ describe('mining map', () => {
       ],
       ships: [
         ship('player', config.map.baseX, config.map.baseY, 'engage', 'rock-1'),
-        ship('rival', 800, config.map.baseY, 'engage', 'rock-1'),
+        { ...ship('rival', 800, config.map.baseY, 'back', null), cargo: 1, cargoValue: 1 },
         { ...ship('player', config.map.baseX, config.map.baseY + 40, 'wait', null), id: 'ship-3', role: 'fighter' },
       ],
       nextShipId: 4,
@@ -1292,9 +1413,15 @@ describe('mining map', () => {
     expect(funded.exportState().pendingMiners).toBe(0)
     expect(funded.exportState().minerWork).toBe(0)
     expect(funded.exportState().ships.map(miner => miner.role === 'fighter' ? 'fighter' : miner.side)).toEqual(['rival', 'fighter'])
+    const rival = funded.exportState().ships.find(miner => miner.side === 'rival')
+    expect(rival?.mode).not.toBe('back')
+    expect(rival?.cargo).toBe(0)
     expect(funded.upgradeMining('automine')).toBe('maxed')
     expect(funded.upgradeMiner('speed')).toBe('maxed')
     funded.advance(1_000)
+    const later = funded.exportState().ships.find(miner => miner.side === 'rival')
+    expect(later?.mode).not.toBe('back')
+    expect(later?.x).toBeLessThan(800)
     expect(funded.scene().money).toBe(200)
     expect(funded.exportState().asteroids).toEqual([])
     funded.advance(2_500)
@@ -1314,21 +1441,606 @@ describe('mining map', () => {
   it('unlocks the ship designer and keeps a part bolted to the core', () => {
     const game = GameImpl.create(tuned({ bank: { startingMoney: 2_000 }, ships: { speed: 0 } }), 1)
     expect(game.placeComponent('structural', 1, 0, 0)).toBe('unknown')
+    expect(game.saveDesign()).toBe('unknown')
     expect(game.unlockDesigner()).toBe('ok')
     expect(game.scene().money).toBe(0)
     expect(game.scene().designer.owned).toBe(true)
     expect(game.unlockDesigner()).toBe('maxed')
     expect(game.placeComponent('structural', 1, 0, 0)).toBe('ok')
     expect(game.placeComponent('structural', 2, 1, 0)).toBe('attach')
+    expect(game.exportState().savedDesign).toBeNull()
+    expect(game.scene().designer.saved).toBeNull()
+    expect(game.saveDesign()).toBe('ok')
+    const committed = game.exportState().savedDesign
+    expect(committed).toEqual(game.exportState().parts)
+    expect(game.scene().designer.saved?.units).toBe(game.scene().designer.units)
     const saved = game.exportState()
     const loaded = GameImpl.restore(tuned({ ships: { speed: 0 } }), saved)
     expect(loaded.exportState().shipDesigner).toBe(true)
     expect(loaded.exportState().parts).toEqual(saved.parts)
+    expect(loaded.exportState().savedDesign).toEqual(committed)
     const id = saved.parts[0]?.id
     expect(id).toBe('part-1')
     if (!id) return
     expect(loaded.removeComponent(id)).toBe('ok')
     expect(loaded.exportState().parts).toEqual([])
+    expect(loaded.exportState().savedDesign).toEqual(committed)
+    expect(loaded.scene().designer.saved?.units).toBe(game.scene().designer.units)
+    expect(game.importDesign({ version: 1, parts: [] })).toBe('ok')
+    expect(game.exportState().parts).toEqual([])
+    expect(game.exportState().savedDesign).toEqual(committed)
+    expect(game.importDesign({ version: 9, parts: [] })).toBe('layout')
+  })
+
+  it('sells a laser and a missile after the designer and refuses them before', () => {
+    const game = GameImpl.create(tuned({ bank: { startingMoney: 20_000 }, ships: { speed: 0 } }), 1)
+    expect(game.unlockWeapon('laser')).toBe('unknown')
+    expect(game.scene().designer.weapons.map(weapon => weapon.cost)).toEqual([
+      config.designer.weapons.laser.cost,
+      config.designer.weapons.missile.cost,
+    ])
+    expect(game.unlockDesigner()).toBe('ok')
+    expect(game.scene().designer.catalog.map(item => item.id)).not.toContain('laser')
+    expect(game.placeComponent('laser', 0, -1, 0)).toBe('unknown')
+    expect(game.unlockWeapon('laser')).toBe('ok')
+    expect(game.unlockWeapon('laser')).toBe('maxed')
+    expect(game.scene().designer.catalog.map(item => item.id)).toContain('laser')
+    expect(game.scene().designer.weapons.find(weapon => weapon.id === 'laser')?.cost).toBeNull()
+    expect(game.placeComponent('missile', -1, 0, 270)).toBe('unknown')
+    expect(game.unlockWeapon('missile')).toBe('ok')
+    expect(game.scene().money).toBe(20_000 - config.designer.cost - config.designer.weapons.laser.cost - config.designer.weapons.missile.cost)
+    const saved = game.exportState()
+    expect(GameImpl.restore(tuned({ ships: { speed: 0 } }), saved).exportState().missile).toBe(true)
+  })
+
+  it('sells medium and large engines after the designer and refuses them before', () => {
+    const game = GameImpl.create(tuned({ bank: { startingMoney: 40_000 }, ships: { speed: 0 } }), 1)
+    expect(game.unlockEngine('mediumEngine')).toBe('unknown')
+    expect(game.unlockDesigner()).toBe('ok')
+    const catalog = () => game.scene().designer.catalog.map(item => item.id)
+    expect(catalog()).toContain('thruster')
+    expect(catalog()).not.toContain('mediumEngine')
+    expect(game.placeComponent('mediumEngine', 0, 1, 0)).toBe('unknown')
+    expect(game.scene().designer.engines).toEqual([
+      {
+        id: 'mediumEngine',
+        label: 'Medium engine',
+        cost: config.designer.engines.mediumEngine.cost,
+        thrust: 20,
+        energy: -4,
+        units: 80,
+        cells: 2,
+      },
+      {
+        id: 'largeEngine',
+        label: 'Large engine',
+        cost: config.designer.engines.largeEngine.cost,
+        thrust: 50,
+        energy: -10,
+        units: 240,
+        cells: 6,
+      },
+    ])
+    expect(game.unlockEngine('mediumEngine')).toBe('ok')
+    expect(game.unlockEngine('mediumEngine')).toBe('maxed')
+    expect(catalog()).toContain('mediumEngine')
+    expect(catalog()).not.toContain('largeEngine')
+    expect(game.placeComponent('mediumEngine', 0, 1, 0)).toBe('ok')
+    expect(game.scene().designer.stats.thrust).toBe(config.designer.components.mediumEngine.thrust)
+    expect(game.scene().designer.stats.energy).toBe(
+      config.designer.components.mediumEngine.energy,
+    )
+    expect(game.unlockEngine('largeEngine')).toBe('ok')
+    const saved = game.exportState()
+    const loaded = GameImpl.restore(tuned({ ships: { speed: 0 } }), saved)
+    expect(loaded.exportState().mediumEngine).toBe(true)
+    expect(loaded.exportState().largeEngine).toBe(true)
+    expect(loaded.scene().designer.catalog.map(item => item.id)).toContain('largeEngine')
+    expect(loaded.scene().designer.stats.thrust).toBeGreaterThan(config.designer.components.thruster.thrust)
+  })
+
+  it('raises laser range and cuts its draw, and raises missile fire rate and damage', () => {
+    const locked = GameImpl.create(tuned({ bank: { startingMoney: 100_000 } }), 1)
+    expect(locked.upgradeWeapon('cannonFireRate')).toBe('unknown')
+    expect(locked.upgradeWeapon('cannonDamage')).toBe('unknown')
+    expect(locked.upgradeWeapon('laserRange')).toBe('unknown')
+    expect(locked.unlockDesigner()).toBe('ok')
+    expect(locked.upgradeWeapon('missileDamage')).toBe('unknown')
+
+    const game = GameImpl.restore(tuned({
+      bank: { startingMoney: 100_000 },
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      shipDesigner: true,
+      laser: true,
+      missile: true,
+      money: 100_000,
+      asteroids: [],
+      ships: [
+        {
+          ...ship('player', 100, 325, 'attack', 'ship-2'),
+          role: 'fighter',
+          craft: {
+            speed: 0,
+            damage: 10,
+            weapons: [
+              { kind: 'laser', range: config.designer.components.laser.range, splash: false },
+              { kind: 'missile', range: 500, splash: true },
+            ],
+            cooldown: { weapon: 0, laser: 0, missile: 0 },
+            cells: [],
+          },
+        },
+        ship('rival', 400, 325, 'wait', null),
+      ],
+    }))
+    expect(game.upgradeWeapon('laserRange')).toBe('ok')
+    expect(game.upgradeWeapon('laserEnergy')).toBe('ok')
+    expect(game.scene().weapon.values.laserRange).toBe(config.designer.components.laser.range + config.weaponUpgrades.laserRange.step)
+    expect(game.scene().weapon.values.laserEnergy).toBe(1)
+    expect(game.placeComponent('thruster', 0, 1, 0)).toBe('ok')
+    expect(game.placeComponent('energy', 1, 0, 0)).toBe('ok')
+    expect(game.placeComponent('laser', 0, -1, 0)).toBe('ok')
+    expect(game.saveDesign()).toBe('ok')
+    expect(game.scene().designer.saved?.stats.range).toBe(config.designer.components.laser.range + 90)
+    expect(game.scene().designer.saved?.stats.energy).toBe(0)
+    expect(game.upgradeWeapon('missileFireRate')).toBe('ok')
+    expect(game.upgradeWeapon('missileDamage')).toBe('ok')
+    game.advance(50)
+    const state = game.exportState()
+    expect(state.shots).toHaveLength(1)
+    expect(state.shots[0]).toMatchObject({ splash: true, damage: 40 })
+    expect(state.ships.find(miner => miner.id === 'ship-2')?.health).toBe(10)
+    expect(game.scene().lasers).toEqual([
+      expect.objectContaining({
+        x0: 100,
+        y0: 325,
+        x1: 400,
+        y1: 325,
+        side: 'player',
+        source: 'laser',
+      }),
+    ])
+    expect(state.ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown).toEqual({ weapon: 0, laser: 950, missile: 2450 })
+  })
+
+  it('raises cannon fire rate and damage after the designer is owned', () => {
+    const game = GameImpl.restore(tuned({
+      bank: { startingMoney: 100_000 },
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      shipDesigner: true,
+      money: 100_000,
+      asteroids: [],
+      ships: [
+        {
+          ...ship('player', 100, 325, 'attack', 'ship-2'),
+          role: 'fighter',
+          craft: {
+            speed: 0,
+            damage: 10,
+            weapons: [{ kind: 'weapon', range: 500, splash: false }],
+            cooldown: { weapon: 0, laser: 0, missile: 0 },
+            cells: [],
+          },
+        },
+        ship('rival', 400, 325, 'wait', null),
+      ],
+    }))
+    expect(game.upgradeWeapon('cannonDamage')).toBe('ok')
+    expect(game.upgradeWeapon('cannonFireRate')).toBe('ok')
+    game.advance(50)
+    const state = game.exportState()
+    expect(state.shots[0]).toMatchObject({ splash: false, damage: 20 })
+    expect(state.ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown.weapon).toBe(450)
+  })
+
+  it('shoots from the farthest powered gun and only counts guns that reach', () => {
+    const aimed = (ranges: number[]) => GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        { ...ship('player', 100, 325, 'attack', 'ship-2'), role: 'fighter', craft: { speed: 0, damage: 10, weapons: ranges.map(range => ({ kind: 'weapon' as const, range, splash: false })), cooldown: { weapon: 0, laser: 0, missile: 0 }, cells: [] } },
+        ship('rival', 300, 325, 'wait', null),
+      ],
+    }))
+    const laser = aimed([config.designer.components.laser.range])
+    laser.advance(50)
+    expect(laser.exportState().shots).toHaveLength(1)
+    expect(laser.exportState().shots[0]?.damage).toBe(10)
+    const gun = aimed([config.designer.components.weapon.range])
+    gun.advance(50)
+    expect(gun.exportState().shots).toHaveLength(0)
+    const mixed = aimed([config.designer.components.laser.range, config.designer.components.weapon.range])
+    mixed.advance(50)
+    expect(mixed.exportState().shots).toHaveLength(1)
+    expect(mixed.exportState().ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown.weapon).toBe(950)
+  })
+
+  it('closes until the shortest gun can fire, and longer guns shoot on the way in', () => {
+    const laser = config.designer.components.laser.range
+    const gun = config.designer.components.weapon.range
+    const armed = (weapons: { kind: 'laser' | 'weapon'; range: number }[], speed: number) => ({
+      speed,
+      damage: 10,
+      weapons: weapons.map(row => ({ kind: row.kind, range: row.range, splash: false as const })),
+      cooldown: { weapon: 0, laser: 0, missile: 0 },
+      cells: [] as [],
+    })
+    const duel = (weapons: { kind: 'laser' | 'weapon'; range: number }[], speed: number, health = 20) => GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000, radius: 0 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        { ...ship('player', 100, 325, 'attack', 'ship-2'), role: 'fighter', craft: armed(weapons, speed) },
+        { ...ship('rival', 300, 325, 'wait', null), health, maxHealth: health },
+      ],
+    }))
+
+    const held = duel([{ kind: 'laser', range: laser }], 100)
+    held.advance(50)
+    expect(held.scene().lasers).toEqual([
+      expect.objectContaining({ x0: 100, y0: 325, x1: 300, y1: 325, side: 'player', source: 'laser' }),
+    ])
+    expect(held.exportState().ships.find(miner => miner.id === 'ship-2')?.health).toBe(10)
+    held.advance(150)
+    expect(held.scene().lasers).toHaveLength(1)
+    held.advance(300)
+    const heldShip = held.exportState().ships.find(miner => miner.id === 'ship-1')
+    expect(heldShip?.mode).toBe('attack')
+    expect(heldShip?.x).toBe(100)
+    expect(held.exportState().shots).toHaveLength(0)
+    expect(held.scene().lasers).toEqual([])
+
+    const closing = duel([
+      { kind: 'laser', range: laser },
+      { kind: 'weapon', range: gun },
+    ], 100, 1_000)
+    closing.advance(50)
+    const mid = closing.exportState()
+    const midShip = mid.ships.find(miner => miner.id === 'ship-1')
+    expect(midShip?.mode).toBe('hunt')
+    expect(midShip?.x).toBeGreaterThan(100)
+    expect(Math.hypot(300 - (midShip?.x ?? 0), 325 - (midShip?.y ?? 0))).toBeGreaterThan(gun)
+    expect(mid.shots).toHaveLength(0)
+    expect(closing.scene().lasers).toEqual([
+      expect.objectContaining({ side: 'player', source: 'laser' }),
+    ])
+    expect(mid.ships.find(miner => miner.id === 'ship-2')?.health).toBe(990)
+    expect(midShip?.craft?.cooldown).toEqual({ weapon: 0, laser: 950, missile: 0 })
+    advanceUntil(closing, () => closing.exportState().ships.find(miner => miner.id === 'ship-1')?.mode === 'attack', 10_000)
+    const parked = closing.exportState().ships.find(miner => miner.id === 'ship-1')
+    expect(Math.hypot(300 - (parked?.x ?? 0), 325 - (parked?.y ?? 0))).toBeLessThanOrEqual(gun)
+
+    const rock = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000, radius: 0 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      asteroids: [{ id: 'asteroid-1', x: 300, y: 325, health: 100, maxHealth: 100, kind: 'normal' }],
+      ships: [{
+        ...ship('player', 100, 325, 'engage', 'asteroid-1'),
+        craft: armed([{ kind: 'laser', range: laser }, { kind: 'weapon', range: gun }], 100),
+      }],
+    }))
+    rock.advance(50)
+    const miner = rock.exportState().ships[0]
+    expect(miner?.mode).toBe('engage')
+    expect(miner?.x).toBeGreaterThan(100)
+    expect(rock.exportState().shots).toHaveLength(0)
+    expect(rock.exportState().asteroids[0]?.health).toBe(90)
+    expect(rock.scene().lasers).toEqual([
+      expect.objectContaining({ x0: miner?.x, y0: 325, x1: 300, y1: 325, side: 'player', source: 'laser' }),
+    ])
+  })
+
+  it('draws a red beam when a rival laser hits', () => {
+    const game = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000, radius: 0 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        ship('player', 300, 325, 'wait', null),
+        {
+          ...ship('rival', 100, 325, 'attack', 'ship-1'),
+          craft: {
+            speed: 0,
+            damage: 10,
+            weapons: [{ kind: 'laser', range: 270, splash: false }],
+            cooldown: { weapon: 0, laser: 0, missile: 0 },
+            cells: [],
+          },
+        },
+      ],
+    }))
+    game.advance(50)
+    expect(game.exportState().shots).toEqual([])
+    expect(game.exportState().ships.find(miner => miner.id === 'ship-1')?.health).toBe(10)
+    expect(game.scene().lasers).toEqual([
+      expect.objectContaining({ x0: 100, y0: 325, x1: 300, y1: 325, side: 'rival', source: 'laser' }),
+    ])
+  })
+
+  it('splashes half damage onto enemy ships in the cells around a missile hit', () => {
+    const cell = config.map.cell
+    const target = { x: 140, y: 325 }
+    const beside = { x: target.x + cell, y: target.y - cell }
+    const crowd = (splash: boolean) => GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 2000, weaponRange: 90, shotIntervalMs: 10_000, radius: 0 },
+      cannon: { range: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        { ...ship('player', 100, 325, 'attack', 'ship-2'), role: 'fighter', craft: { speed: 0, damage: 10, weapons: [{ kind: 'missile', range: 500, splash }], cooldown: { weapon: 0, laser: 0, missile: 0 }, cells: [] } },
+        { ...ship('rival', target.x, target.y, 'wait', null), health: 100, maxHealth: 100 },
+        { ...ship('rival', beside.x, beside.y, 'wait', null), id: 'ship-3', health: 20, maxHealth: 20 },
+        { ...ship('rival', target.x + 1, target.y, 'wait', null), id: 'ship-4', health: 20, maxHealth: 20 },
+        { ...ship('rival', target.x + cell * 2, target.y, 'wait', null), id: 'ship-7', health: 20, maxHealth: 20 },
+        { ...ship('rival', target.x + cell * 3, target.y, 'wait', null), id: 'ship-5', health: 20, maxHealth: 20 },
+        { ...ship('player', beside.x, target.y, 'wait', null), id: 'ship-6', health: 20, maxHealth: 20 },
+      ],
+    }))
+    const health = (game: GameImpl, id: string) => game.exportState().ships.find(miner => miner.id === id)?.health
+    const missile = crowd(true)
+    missile.advance(50)
+    expect(health(missile, 'ship-2')).toBe(70)
+    expect(health(missile, 'ship-3')).toBe(5)
+    expect(health(missile, 'ship-4')).toBe(20)
+    expect(health(missile, 'ship-5')).toBe(20)
+    expect(health(missile, 'ship-7')).toBe(5)
+    expect(health(missile, 'ship-6')).toBe(20)
+    const gun = crowd(false)
+    gun.advance(50)
+    expect(health(gun, 'ship-2')).toBe(70)
+    expect(health(gun, 'ship-3')).toBe(20)
+    expect(gun.scene().blasts).toEqual([])
+  })
+
+  it('lights every map cell a missile blast covers, then fades', () => {
+    const cell = config.map.cell
+    const target = { x: 140, y: 325 }
+    const game = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 2000, weaponRange: 90, shotIntervalMs: 10_000, radius: 0 },
+      cannon: { range: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        { ...ship('player', 100, 325, 'attack', 'ship-2'), role: 'fighter', craft: { speed: 0, damage: 10, weapons: [{ kind: 'missile', range: 500, splash: true }], cooldown: { weapon: 0, laser: 0, missile: 0 }, cells: [] } },
+        { ...ship('rival', target.x, target.y, 'wait', null), health: 100, maxHealth: 100 },
+      ],
+    }))
+    game.advance(50)
+    const blast = game.scene().blasts
+    expect(blast).toHaveLength(1)
+    expect(blast[0]).toMatchObject({ side: 'player', size: cell, bright: 1 })
+    const originX = Math.floor(target.x / cell) * cell
+    const originY = Math.floor(target.y / cell) * cell
+    const expected: string[] = []
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) expected.push(`${originX + dx * cell},${originY + dy * cell}`)
+    }
+    expect(blast[0].cells.map(spot => `${spot.x},${spot.y}`).sort()).toEqual(expected.sort())
+    game.advance(50)
+    expect(game.scene().blasts[0]?.bright).toBeCloseTo(0.875, 5)
+    game.advance(400)
+    expect(game.scene().blasts).toEqual([])
+  })
+
+  it('flies a missile at half the speed of a gun shot', () => {
+    const armed = (splash: boolean) => GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 1_000, weaponRange: 90, shotIntervalMs: 10_000, radius: 0 },
+      cannon: { range: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        {
+          ...ship('player', 100, 325, 'attack', 'ship-2'),
+          role: 'fighter',
+          craft: {
+            speed: 0,
+            damage: 10,
+            weapons: [{ kind: splash ? 'missile' as const : 'weapon' as const, range: 500, splash }],
+            cooldown: { weapon: 0, laser: 0, missile: 0 },
+            cells: [],
+          },
+        },
+        ship('rival', 500, 325, 'wait', null),
+      ],
+    }))
+    const gun = armed(false)
+    const missile = armed(true)
+    gun.advance(100)
+    missile.advance(100)
+    expect(gun.exportState().shots[0]?.x).toBeCloseTo(200, 5)
+    expect(missile.exportState().shots[0]?.x).toBeCloseTo(150, 5)
+    expect(missile.scene().shots[0]).toMatchObject({ splash: true, angle: 0 })
+  })
+
+  it('fires each gun type on its own timer, so extra missiles do not speed up the stock gun', () => {
+    const game = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 90, shotIntervalMs: 1000 },
+      asteroids: { spawnMs: 999_999 },
+      cannon: { range: 0 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        {
+          ...ship('player', 100, 325, 'attack', 'ship-2'),
+          role: 'fighter',
+          craft: {
+            speed: 0,
+            damage: 10,
+            weapons: [
+              { kind: 'weapon', range: 500, splash: false },
+              { kind: 'missile', range: 500, splash: true },
+              { kind: 'missile', range: 500, splash: true },
+            ],
+            cooldown: { weapon: 0, laser: 0, missile: 0 },
+            cells: [],
+          },
+        },
+        ship('rival', 140, 325, 'wait', null),
+      ],
+    }))
+    game.advance(50)
+    const first = game.exportState()
+    expect(first.shots).toHaveLength(2)
+    expect(first.shots.filter(shot => shot.splash)).toHaveLength(1)
+    expect(first.ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown).toEqual({ weapon: 950, laser: 0, missile: 2450 })
+    game.advance(1000)
+    const second = game.exportState()
+    expect(second.shots).toHaveLength(3)
+    expect(second.shots.filter(shot => shot.splash)).toHaveLength(1)
+    expect(second.ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown).toEqual({ weapon: 950, laser: 0, missile: 1450 })
+  })
+
+  it('builds the selected design instead of the default fighter', () => {
+    const game = GameImpl.create(tuned({ bank: { startingMoney: 2_000 }, ships: { speed: 0 } }), 1)
+    expect(game.scene().fleet.selected).toBe('fighter')
+    expect(game.scene().fleet.choices.map(choice => choice.id)).toEqual(['fighter'])
+    expect(game.chooseProduction('saved')).toBe('unknown')
+    expect(game.unlockDesigner()).toBe('ok')
+    expect(game.placeComponent('structural', 1, 0, 0)).toBe('ok')
+    expect(game.saveDesign()).toBe('ok')
+    const choices = game.scene().fleet.choices
+    expect(choices.map(choice => choice.id)).toEqual(['fighter', 'saved'])
+    expect(choices.find(choice => choice.id === 'fighter')?.units).toBe(config.fighter.units)
+    const saved = choices.find(choice => choice.id === 'saved')
+    expect(saved?.units).toBe(config.designer.components.structural.units)
+    expect(saved?.cells.map(cell => `${cell.x},${cell.y}`)).toEqual(['0,0', '1,0'])
+    expect(game.chooseProduction('saved')).toBe('ok')
+    expect(game.scene().fleet.selected).toBe('saved')
+
+    const building = GameImpl.restore(tuned({
+      ships: { speed: 0 },
+      asteroids: { spawnMs: 999_999 },
+    }), {
+      ...game.exportState(),
+      pendingFighters: 1,
+      ships: [],
+      asteroids: [],
+    })
+    building.advance(5_000)
+    expect(building.scene().nextFighter?.progress).toBeCloseTo(0.5, 5)
+    expect(building.scene().nextFighter?.cells.map(cell => `${cell.x},${cell.y}`).sort()).toEqual(['0,0', '1,0'])
+    building.advance(5_000)
+    expect(building.exportState().pendingFighters).toBe(0)
+    expect(building.exportState().ships.filter(miner => miner.role === 'fighter')).toHaveLength(1)
+    expect(building.chooseProduction('fighter')).toBe('ok')
+    expect(building.exportState().productionDesign).toBe('fighter')
+    const loaded = GameImpl.restore(tuned({ ships: { speed: 0 } }), building.exportState())
+    expect(loaded.scene().fleet.selected).toBe('fighter')
+
+    expect(() => GameImpl.restore(tuned(), fresh({
+      shipDesigner: true,
+      productionDesign: 'saved',
+      asteroids: [],
+      ships: [],
+    }))).toThrow(/saved design/)
+  })
+
+  it('builds a saved design that flies at its speed and fires its weapons', () => {
+    const parts: MapState['parts'] = [
+      { id: 'part-1', component: 'thruster', x: 0, y: 1, rotation: 0 },
+      { id: 'part-2', component: 'weapon', x: 0, y: -1, rotation: 0 },
+      { id: 'part-3', component: 'energy', x: 1, y: 0, rotation: 0 },
+    ]
+    const weight = config.designer.core.weight
+      + config.designer.components.thruster.weight
+      + config.designer.components.weapon.weight
+      + config.designer.components.energy.weight
+    const speed = config.ships.speed * (config.designer.components.thruster.thrust / weight)
+    const game = GameImpl.restore(tuned({ asteroids: { spawnMs: 999_999 } }), fresh({
+      shipDesigner: true,
+      parts,
+      nextPartId: 4,
+      savedDesign: parts,
+      productionDesign: 'saved',
+      pendingFighters: 1,
+      asteroids: [],
+      ships: [
+        ship('player', 400, 100, 'wait', null),
+        ship('rival', config.map.rivalBaseX, config.map.rivalBaseY, 'wait', null),
+      ],
+    }))
+    const units = parts.reduce((sum, part) => sum + config.designer.components[part.component].units, 0)
+    game.advance(units * 1000)
+    const fighter = game.exportState().ships.find(miner => miner.role === 'fighter')
+    const cells = [
+      { x: 0, y: 0, color: '#e2e8f0' },
+      { x: 0, y: 1, color: config.designer.components.thruster.color },
+      { x: 0, y: -1, color: config.designer.components.weapon.color },
+      { x: 0, y: -2, color: config.designer.components.weapon.color },
+      { x: 1, y: 0, color: config.designer.components.energy.color },
+      { x: 1, y: 1, color: config.designer.components.energy.color },
+    ]
+    expect(fighter?.craft).toEqual({
+      speed,
+      damage: config.designer.weaponDamage,
+      weapons: [{ kind: 'weapon', range: config.designer.components.weapon.range, splash: false }],
+      cooldown: { weapon: 0, laser: 0, missile: 0 },
+      cells,
+    })
+    expect(game.scene().ships.find(miner => miner.role === 'fighter')?.hull).toEqual(cells)
+    expect(fighter?.x).toBe(config.map.baseX)
+    game.advance(1000)
+    expect(game.exportState().ships.find(miner => miner.role === 'fighter')?.x).toBeCloseTo(config.map.baseX + speed, 0)
+
+    const shooting = GameImpl.restore(tuned({
+      ships: { speed: 0, shotSpeed: 0, weaponRange: 500, shotIntervalMs: 1000 },
+      asteroids: { spawnMs: 999_999 },
+    }), fresh({
+      asteroids: [],
+      ships: [
+        { ...ship('player', 100, 325, 'attack', 'ship-2'), role: 'fighter', craft: { speed: 30, damage: 10, weapons: [{ kind: 'weapon', range: 500, splash: false }, { kind: 'weapon', range: 500, splash: false }], cooldown: { weapon: 0, laser: 0, missile: 0 }, cells: [] } },
+        ship('rival', 140, 325, 'wait', null),
+      ],
+    }))
+    shooting.advance(50)
+    expect(shooting.exportState().shots.find(shot => shot.shipId === 'ship-2')?.damage).toBe(10)
+    expect(shooting.exportState().ships.find(miner => miner.id === 'ship-1')?.craft?.cooldown.weapon).toBe(450)
+  })
+
+  it('launches a designed ship with hull health and leaves the fighter health upgrade on the default fighter', () => {
+    const parts: MapState['parts'] = [
+      { id: 'part-1', component: 'structural', x: 1, y: 0, rotation: 0 },
+      { id: 'part-2', component: 'armor', x: 0, y: 1, rotation: 0 },
+    ]
+    const hull = config.designer.core.health + config.designer.components.structural.health + config.designer.components.armor.health
+    const game = GameImpl.restore(tuned({ asteroids: { spawnMs: 999_999 } }), fresh({
+      money: 20,
+      tractorBeam: true,
+      shipDesigner: true,
+      parts,
+      nextPartId: 3,
+      savedDesign: parts,
+      productionDesign: 'saved',
+      pendingFighters: 1,
+      asteroids: [],
+      ships: [],
+    }))
+    expect(game.upgradeFighterStat('health')).toBe('ok')
+    const units = parts.reduce((sum, part) => sum + config.designer.components[part.component].units, 0)
+    game.advance(units * 1000)
+    const fighter = game.exportState().ships.find(miner => miner.role === 'fighter')
+    expect(fighter?.health).toBe(hull)
+    expect(fighter?.maxHealth).toBe(hull)
+    expect(game.upgradeFighterStat('health')).toBe('ok')
+    expect(game.exportState().ships.find(miner => miner.role === 'fighter')?.health).toBe(hull)
+    expect(game.scene().fighter.values.health).toBe(40)
   })
 
   it('pays a doubling gift from the sidebar button', () => {
@@ -1415,7 +2127,7 @@ describe('mining map', () => {
     expect(shooting.exportState().ships.filter(miner => miner.side === 'player')).toHaveLength(1)
     shooting.advance(50)
     const rivals = shooting.exportState().ships.filter(miner => miner.side === 'rival')
-    expect(rivals.find(miner => miner.id === 'ship-2')?.fireCooldownMs).toBe(450)
+    expect(rivals.find(miner => miner.id === 'ship-2')?.fireCooldownMs).toBe(1950)
     expect(shooting.exportState().shots.find(shot => shot.side === 'rival')?.damage).toBe(2)
 
     const flying = GameImpl.restore(tuned({
@@ -1511,8 +2223,9 @@ describe('mining map', () => {
   })
 
   it('does not leave a miner idle while there is something to mine', () => {
+    const shotIntervalMs = 1200
     const game = GameImpl.create(tuned({
-      ships: { speed: 45, weaponRange: 45, shotIntervalMs: 1200 },
+      ships: { speed: 45, weaponRange: 45, shotIntervalMs },
       ore: { speed: 24 },
       asteroids: { health: 40, spawnMs: 60_000 },
     }), 7)
@@ -1533,7 +2246,7 @@ describe('mining map', () => {
         expect(
           idleMs.get(ship.id),
           `${ship.side} ${ship.mode} target=${ship.targetId} gap=${gap.toFixed(1)} xy=${ship.x.toFixed(1)},${ship.y.toFixed(1)} asteroids=${state.asteroids.length} ores=${state.ores.length}`,
-        ).toBeLessThan(4000)
+        ).toBeLessThan(shotIntervalMs * 4 + 500)
       }
       previous = new Map(state.ships.map(ship => {
         const rock = state.asteroids.find(asteroid => asteroid.id === ship.targetId)
@@ -1555,6 +2268,7 @@ function fresh(partial: Pick<MapState, 'asteroids' | 'ships'> & Partial<MapState
     ores: [],
     shots: [],
     minerLevels: blankLevels(),
+    weaponLevels: blankWeaponLevels(),
     miningLevels: blankMiningLevels(),
     fighterLevels: blankFighterLevels(),
     enemyLevels: blankEnemyLevels(),
@@ -1563,8 +2277,14 @@ function fresh(partial: Pick<MapState, 'asteroids' | 'ships'> & Partial<MapState
     miningUnlocked: false,
     automine: false,
     shipDesigner: false,
+    laser: false,
+    missile: false,
+    mediumEngine: false,
+    largeEngine: false,
     parts: [],
     nextPartId: 1,
+    savedDesign: null,
+    productionDesign: 'fighter',
     goldenSpawnAccumulatorMs: 0,
     pendingMiners: 0,
     minerWork: 0,
@@ -1574,6 +2294,8 @@ function fresh(partial: Pick<MapState, 'asteroids' | 'ships'> & Partial<MapState
     rivalElapsedMs: 0,
     fleetAnswered: false,
     gift: 10,
+    baseCombat: false,
+    rivalCombat: false,
     ...partial,
   }
 }
@@ -1598,6 +2320,7 @@ function ship(
     role: 'miner',
     health: 20,
     maxHealth: 20,
+    craft: null,
   }
 }
 

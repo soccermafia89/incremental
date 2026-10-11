@@ -9,6 +9,8 @@ interface ComponentMenuProps {
   showMining: boolean
   /** Shown once the ship designer has been bought. */
   showDesigner: boolean
+  /** Shown once a ship design can be chosen for production. */
+  showFleet: boolean
   /** Shown once the tractor beam has been bought. The purchase is permanent. */
   showFighter: boolean
   /** Shown once rival ships start attacking, which is the tractor beam purchase. */
@@ -16,6 +18,7 @@ interface ComponentMenuProps {
   /** What the next click of the gift button pays. */
   gift: number
   onGift: () => void
+  onBuyUpgrades: () => void
   onSkipLevelOne: () => void
 }
 
@@ -26,6 +29,7 @@ const PRIMARY: { label: string; view: string; tone: Tone }[] = [
   { label: 'Map', view: 'map', tone: 'nav' },
   { label: 'Ship Upgrades', view: 'upgrades', tone: 'nav' },
   { label: 'Ship Designer', view: 'designer', tone: 'nav' },
+  { label: 'Fleet Design', view: 'fleet', tone: 'nav' },
   { label: 'Mining', view: 'mining', tone: 'nav' },
   { label: 'Fighter', view: 'fighter', tone: 'nav' },
   { label: 'Enemy', view: 'enemy', tone: 'nav' },
@@ -46,7 +50,7 @@ function colors(theme: ShellTheme, tone: Tone): { color: string; highlight: stri
   return { color: theme.nav, highlight: theme.navHighlight, border: theme.navBorder }
 }
 
-export function ComponentMenu({ activeView, onViewChange, devMode, showMining, showDesigner, showFighter, showEnemy, gift, onGift, onSkipLevelOne }: ComponentMenuProps) {
+export function ComponentMenu({ activeView, onViewChange, devMode, showMining, showDesigner, showFleet, showFighter, showEnemy, gift, onGift, onBuyUpgrades, onSkipLevelOne }: ComponentMenuProps) {
   return (
     <div
       style={{
@@ -68,7 +72,7 @@ export function ComponentMenu({ activeView, onViewChange, devMode, showMining, s
         flexDirection: 'column',
         gap: '10px',
       }}>
-        {PRIMARY.filter(item => (item.view !== 'mining' || showMining) && (item.view !== 'designer' || showDesigner) && (item.view !== 'fighter' || showFighter) && (item.view !== 'enemy' || showEnemy)).map(item => (
+        {PRIMARY.filter(item => (item.view !== 'mining' || showMining) && (item.view !== 'designer' || showDesigner) && (item.view !== 'fleet' || showFleet) && (item.view !== 'fighter' || showFighter) && (item.view !== 'enemy' || showEnemy)).map(item => (
           <NavButton key={item.view} item={item} activeView={activeView} onViewChange={onViewChange} />
         ))}
         {devMode && (
@@ -95,6 +99,25 @@ export function ComponentMenu({ activeView, onViewChange, devMode, showMining, s
           </div>
         )}
       </div>
+      <button
+        type="button"
+        data-upgrades-to-ship-design
+        onClick={onBuyUpgrades}
+        style={{
+          width: '100%',
+          padding: '14px 12px',
+          backgroundColor: THEME.accent,
+          color: 'white',
+          border: `2px solid ${THEME.navBorder}`,
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: '16px',
+          fontWeight: 'bold',
+          flexShrink: 0,
+        }}
+      >
+        Upgrades to ship design
+      </button>
       <button
         type="button"
         data-skip-level-one

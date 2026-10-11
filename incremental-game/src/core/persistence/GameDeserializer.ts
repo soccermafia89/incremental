@@ -1,18 +1,20 @@
 import type { GameConfig } from '../../data/GameConfig'
 import { loadGameConfig } from '../../data/GameConfig'
-import { mapping, requireInt, requireNumber } from '../../data/number'
+import { isGunId } from '../../data/designer'
+import { mapping, requireNumber } from '../../data/number'
 import { ENEMY_FIELDS, ENEMY_UPGRADE_IDS } from '../../data/enemy/upgrades'
 import { FIGHTER_FIELDS, FIGHTER_UPGRADE_IDS } from '../../data/fighter/upgrades'
 import { MINING_FIELDS, MINING_IDS } from '../../data/mining'
 import { LEVEL_FIELDS, UPGRADE_IDS } from '../../data/upgrades'
+import { WEAPON_FIELDS, WEAPON_UPGRADE_IDS } from '../../data/weapons/upgrades'
 import type { AsteroidKind, AsteroidState } from '../asteroid/AsteroidField'
 import type { MapState } from '../game/state'
 import { GameImpl } from '../game/Game'
-import { SHIP_MODES, SHIP_ROLES, type ShipMode, type ShipRole, type ShipState, type Side } from '../miner'
+import { SHIP_MODES, SHIP_ROLES, type HullCell, type ShipMode, type ShipRole, type ShipState, type Side } from '../miner'
 import type { OreState } from '../ore/OreField'
 import type { ShotState } from '../shot/Shot'
-import { isComponentId } from '../../data/designer'
-import { isRotation, type PlacedPart } from '../designer/Design'
+import { readParts, type PlacedPart } from '../designer'
+import type { ProductionDesign } from '../game/state'
 import { SAVE_FORMAT_VERSION } from './GameSnapshot'
 
 export class GameDeserializer {
@@ -40,13 +42,20 @@ export class GameDeserializer {
       miningLevels: readLevels(row, MINING_IDS, MINING_FIELDS),
       fighterLevels: readLevels(row, FIGHTER_UPGRADE_IDS, FIGHTER_FIELDS),
       enemyLevels: readLevels(row, ENEMY_UPGRADE_IDS, ENEMY_FIELDS),
+      weaponLevels: readLevels(row, WEAPON_UPGRADE_IDS, WEAPON_FIELDS),
       tractorBeam: flag(row.tractorBeam, 'tractorBeam'),
       golden: flag(row.golden, 'golden'),
       miningUnlocked: flag(row.miningUnlocked, 'miningUnlocked'),
       automine: flag(row.automine, 'automine'),
       shipDesigner: flag(row.shipDesigner, 'shipDesigner'),
-      parts: list(row.parts, 'parts').map((item, index) => placedPart(item, index)),
+      laser: flag(row.laser, 'laser'),
+      missile: flag(row.missile, 'missile'),
+      mediumEngine: flag(row.mediumEngine, 'mediumEngine'),
+      largeEngine: flag(row.largeEngine, 'largeEngine'),
+      parts: readParts(row.parts),
       nextPartId: positiveInt(row.nextPartId, 'nextPartId'),
+      savedDesign: readSavedDesign(row.savedDesign),
+      productionDesign: readProduction(row.productionDesign),
       pendingMiners: nonNegativeInt(row.pendingMiners, 'pendingMiners'),
       minerWork: count(row.minerWork, 'minerWork'),
       pendingFighters: nonNegativeInt(row.pendingFighters, 'pendingFighters'),
@@ -55,9 +64,21 @@ export class GameDeserializer {
       rivalElapsedMs: count(row.rivalElapsedMs, 'rivalElapsedMs'),
       fleetAnswered: flag(row.fleetAnswered, 'fleetAnswered'),
       gift: positiveInt(row.gift, 'gift'),
+      baseCombat: flag(row.baseCombat, 'baseCombat'),
+      rivalCombat: flag(row.rivalCombat, 'rivalCombat'),
     }
     return GameImpl.restore(config, state)
   }
+}
+
+function readProduction(raw: unknown): ProductionDesign {
+  if (raw === 'fighter' || raw === 'saved') return raw
+  throw new Error('productionDesign is invalid')
+}
+
+function readSavedDesign(raw: unknown): PlacedPart[] | null {
+  if (raw === null) return null
+  return readParts(raw, 'savedDesign')
 }
 
 const NEXT_IDS = ['nextAsteroidId', 'nextShipId', 'nextOreId', 'nextShotId'] as const
@@ -66,24 +87,6 @@ function nextIds(row: Record<string, unknown>): Pick<MapState, (typeof NEXT_IDS)
   const ids = {} as Pick<MapState, (typeof NEXT_IDS)[number]>
   for (const key of NEXT_IDS) ids[key] = positiveInt(row[key], key)
   return ids
-}
-
-function placedPart(raw: unknown, index: number): PlacedPart {
-  const label = `parts[${index}]`
-  const row = mapping(raw, label)
-  const component = text(row.component, `${label}.component`)
-  if (!isComponentId(component)) throw new Error(`${label}.component is invalid`)
-  const id = text(row.id, `${label}.id`)
-  if (!/^part-[1-9]\d*$/.test(id)) throw new Error(`${label}.id is invalid`)
-  const rotation = requireInt(row.rotation, `${label}.rotation`)
-  if (!isRotation(rotation)) throw new Error(`${label}.rotation is invalid`)
-  return {
-    id,
-    component,
-    x: requireInt(row.x, `${label}.x`),
-    y: requireInt(row.y, `${label}.y`),
-    rotation,
-  }
 }
 
 function asteroid(raw: unknown, index: number): AsteroidState {
@@ -125,6 +128,8 @@ function shot(raw: unknown, index: number): ShotState {
     side: side(row.side, `${label}.side`),
     damage: positiveInt(row.damage, `${label}.damage`),
     cannon: flag(row.cannon, `${label}.cannon`),
+    splash: flag(row.splash, `${label}.splash`),
+    mining: flag(row.mining, `${label}.mining`),
   }
 }
 
@@ -135,6 +140,53 @@ function shotTarget(row: Record<string, unknown>, label: string): { asteroidId: 
     throw new Error(`${label} must target an asteroid or a ship`)
   }
   return { asteroidId, shipId }
+}
+
+function readCraft(raw: unknown, label: string): ShipState['craft'] {
+  if (raw === null) return null
+  const row = mapping(raw, label)
+  const speed = requireNumber(row.speed, `${label}.speed`)
+  if (speed < 0) throw new Error(`${label}.speed is negative`)
+  return {
+    speed,
+    damage: nonNegativeInt(row.damage, `${label}.damage`),
+    weapons: readWeapons(row.weapons, `${label}.weapons`),
+    cooldown: readCooldown(row.cooldown, `${label}.cooldown`),
+    cells: readHull(row.cells, `${label}.cells`),
+  }
+}
+
+function readCooldown(raw: unknown, label: string): { weapon: number; laser: number; missile: number } {
+  const row = mapping(raw, label)
+  return {
+    weapon: nonNegativeInt(row.weapon, `${label}.weapon`),
+    laser: nonNegativeInt(row.laser, `${label}.laser`),
+    missile: nonNegativeInt(row.missile, `${label}.missile`),
+  }
+}
+
+function readWeapons(raw: unknown, label: string): { kind: 'weapon' | 'laser' | 'missile'; range: number; splash: boolean }[] {
+  return list(raw, label).map((item, index) => {
+    const gun = mapping(item, `${label}[${index}]`)
+    const kind = gun.kind
+    if (typeof kind !== 'string' || !isGunId(kind)) throw new Error(`${label}[${index}].kind is invalid`)
+    return {
+      kind,
+      range: positiveInt(gun.range, `${label}[${index}].range`),
+      splash: flag(gun.splash, `${label}[${index}].splash`),
+    }
+  })
+}
+
+function readHull(raw: unknown, label: string): HullCell[] {
+  return list(raw, label).map((item, index) => {
+    const cell = mapping(item, `${label}[${index}]`)
+    return {
+      x: integer(cell.x, `${label}[${index}].x`),
+      y: integer(cell.y, `${label}[${index}].y`),
+      color: text(cell.color, `${label}[${index}].color`),
+    }
+  })
 }
 
 function ship(raw: unknown, index: number): ShipState {
@@ -158,6 +210,7 @@ function ship(raw: unknown, index: number): ShipState {
     side: side(row.side, `${label}.side`),
     role: role(row.role, `${label}.role`),
     ...shipHealth(row, label),
+    craft: readCraft(row.craft, `${label}.craft`),
   }
 }
 
@@ -197,6 +250,12 @@ function optionalId(value: unknown, label: string): string | null {
 function side(value: unknown, label: string): Side {
   if (value !== 'player' && value !== 'rival') throw new Error(`${label} is invalid`)
   return value
+}
+
+function integer(value: unknown, label: string): number {
+  const number = requireNumber(value, label)
+  if (!Number.isInteger(number)) throw new Error(`${label} must be an integer`)
+  return number
 }
 
 function count(value: unknown, label: string): number {

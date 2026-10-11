@@ -1,4 +1,4 @@
 cost: 0
-# Production units to build one fighter. At production 1 that is one unit a second.
-units: 60
+# Production units to build one fighter. The starting build rate finishes this in 60 seconds.
+units: 1000
 bounty: 100

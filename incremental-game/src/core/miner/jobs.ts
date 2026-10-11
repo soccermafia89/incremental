@@ -1,5 +1,6 @@
 import { inWeaponRange } from '../motion/move'
 import { cellKey } from '../motion/separate'
+import { weaponStop } from './range'
 import type { ShipMode, ShipState } from './types'
 import type { MinerWorld } from './world'
 
@@ -32,12 +33,12 @@ export function ensureDuty(ship: ShipState, ships: ShipState[], world: MinerWorl
     ? world.asteroids.find(ship.targetId)
     : undefined
   if (asteroid) {
-    ship.mode = inWeaponRange(ship, asteroid, world.config.ships.weaponRange) ? 'shoot' : 'engage'
+    ship.mode = inWeaponRange(ship, asteroid, weaponStop(ship, world)) ? 'shoot' : 'engage'
     return
   }
   assignJob(ship, world)
   const next = world.asteroids.find(ship.targetId)
-  if (next && inWeaponRange(ship, next, world.config.ships.weaponRange)) ship.mode = 'shoot'
+  if (next && inWeaponRange(ship, next, weaponStop(ship, world))) ship.mode = 'shoot'
 }
 
 /** Loose ore first, then the nearest asteroid. A full hold is already heading home. */
@@ -50,10 +51,10 @@ export function assignJob(ship: ShipState, world: MinerWorld): void {
   engageNearest(ship, world)
 }
 
-/** Fly at the nearest enemy and shoot once it is in weapon range. With none left, shell the other base. */
+/** Fly at the nearest enemy and stop once the shortest gun is in range. With none left, shell the other base. */
 export function huntNearest(ship: ShipState, ships: ShipState[], world: MinerWorld): void {
   const enemy = nearestEnemy(ship, ships)
-  const range = world.config.ships.weaponRange
+  const range = weaponStop(ship, world)
   if (!enemy) {
     const base = opposingBase(ship, world)
     order(ship, inWeaponRange(ship, base, range) ? 'attack' : 'hunt', BASE_TARGET)
@@ -70,7 +71,7 @@ export function opposingBase(ship: ShipState, world: MinerWorld): { x: number; y
 function holdTarget(ship: ShipState, ships: ShipState[], world: MinerWorld): void {
   const target = ships.find(other => other.id === ship.targetId && other.side !== ship.side)
   if (target && (ship.mode === 'hunt' || ship.mode === 'attack')) {
-    ship.mode = inWeaponRange(ship, target, world.config.ships.weaponRange) ? 'attack' : 'hunt'
+    ship.mode = inWeaponRange(ship, target, weaponStop(ship, world)) ? 'attack' : 'hunt'
     return
   }
   huntNearest(ship, ships, world)
@@ -95,7 +96,7 @@ function nearestEnemy(ship: ShipState, ships: ShipState[]): ShipState | undefine
 export function engageNearest(ship: ShipState, world: MinerWorld): void {
   const asteroid = world.asteroids.nearest(ship)
   if (!asteroid) {
-    order(ship, ship.cargo > 0 ? 'back' : 'wait', null)
+    order(ship, 'wait', null)
     return
   }
   order(ship, 'engage', asteroid.id)

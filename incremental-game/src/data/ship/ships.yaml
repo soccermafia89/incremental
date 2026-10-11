@@ -1,7 +1,7 @@
 speed: 45
 shotIntervalMs: 1000
-weaponRange: 45
-shotSpeed: 280
+weaponRange: 90
+shotSpeed: 140
 # Production units to launch one miner. At production 1 that is one unit a second.
 units: 60
 radius: 8

@@ -1,3 +1,4 @@
+import type { GunId } from '../../data/designer'
 import { UPGRADE_IDS, type UpgradeId, type UpgradeLevels } from '../../data/upgrades'
 
 export const SHIP_MODES = ['wait', 'engage', 'shoot', 'collect', 'back', 'hunt', 'attack'] as const
@@ -28,8 +29,33 @@ export interface ShipState {
   role: ShipRole
   health: number
   maxHealth: number
+  /** Speed, shot damage, each powered gun, and colored squares copied from a saved design. Null uses the fighter upgrades and the stock dart. */
+  craft: {
+    speed: number
+    damage: number
+    weapons: { kind: GunId; range: number; splash: boolean }[]
+    /** Milliseconds until that gun type can fire. Each type waits on its own. */
+    cooldown: Record<GunId, number>
+    cells: HullCell[]
+  } | null
+}
+
+/** One square of a designed ship, in designer-grid coordinates. */
+export interface HullCell {
+  x: number
+  y: number
+  color: string
 }
 
 export function copyShip(ship: ShipState): ShipState {
-  return { ...ship }
+  if (ship.craft === null) return { ...ship }
+  return {
+    ...ship,
+    craft: {
+      ...ship.craft,
+      weapons: ship.craft.weapons.map(gun => ({ ...gun })),
+      cooldown: { ...ship.craft.cooldown },
+      cells: ship.craft.cells.map(cell => ({ ...cell })),
+    },
+  }
 }

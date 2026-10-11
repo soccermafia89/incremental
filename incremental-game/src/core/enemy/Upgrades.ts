@@ -92,11 +92,11 @@ export class EnemyUpgrades {
     return Math.round(base * config.golden.rivalDamage / config.enemyUpgrades.damage.start)
   }
 
-  /** Rate 1 waits a full shot interval. Golden divides that wait again. */
+  /** Rate 1 waits four shot intervals. Golden divides that wait again. */
   shotInterval(config: GameConfig, golden: boolean): number {
     const rate = this.value('attackRate', config)
     const start = config.enemyUpgrades.attackRate.start
-    const interval = Math.round(config.ships.shotIntervalMs * start / rate)
+    const interval = Math.round(config.ships.shotIntervalMs * 4 * start / rate)
     return golden ? Math.round(interval / config.golden.rivalFire) : interval
   }
 

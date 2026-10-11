@@ -100,7 +100,7 @@ export function MiningPanel({
           </div>
         </button>
       </div>
-      {!mining.automine.owned && (
+      {beam.owned && !mining.automine.owned && (
         <div
           data-upgrade-section="automine"
           style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 10 }}

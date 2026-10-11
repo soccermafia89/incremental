@@ -1,6 +1,10 @@
 import type { MapScene } from '../../core/game/Game'
+import type { HullCell } from '../../core/miner'
 import { Base } from './Base'
 import { SHIP_MARK, ShipMark } from './ShipMark'
+
+/** Longest side of a designed hull. Same span as the stock fighter dart. */
+const HULL_EXTENT = SHIP_MARK.fighter.width
 
 const STARS: readonly (readonly [number, number])[] = [
   [120, 48], [210, 140], [260, 520], [340, 80], [480, 200],
@@ -52,8 +56,8 @@ export function MapView({ scene }: { scene: MapScene }) {
         <div data-miner-count={blue}>Blue {blue}</div>
       </div>
 
-      <Base x={scene.base.x} y={scene.base.y} radius={scene.base.radius} fill="#16324f" stroke="#4a9eff" marker="base" />
-      <Base x={scene.rival.x} y={scene.rival.y} radius={scene.rival.radius} fill="#4a1520" stroke="#ef4444" marker="rival-base" />
+      <Base x={scene.base.x} y={scene.base.y} radius={scene.base.radius} fill="#16324f" stroke="#4a9eff" marker="base" combat={scene.baseCombat} />
+      <Base x={scene.rival.x} y={scene.rival.y} radius={scene.rival.radius} fill="#4a1520" stroke="#ef4444" marker="rival-base" combat={scene.rivalCombat} />
 
       {scene.asteroids.map(asteroid => {
         const golden = asteroid.kind === 'golden'
@@ -120,24 +124,16 @@ export function MapView({ scene }: { scene: MapScene }) {
         <Laser key={laser.id} laser={laser} />
       ))}
 
+      {scene.blasts.map(blast => (
+        <Blast key={blast.id} blast={blast} />
+      ))}
+
       {scene.shots.map(shot => (
-        <div
-          key={shot.id}
-          data-shot={shot.id}
-          style={{
-            position: 'absolute',
-            left: shot.x - 2,
-            top: shot.y - 2,
-            width: 5,
-            height: 5,
-            borderRadius: 5,
-            backgroundColor: shot.side === 'rival' ? '#fca5a5' : '#fef08a',
-          }}
-        />
+        <ShotGlyph key={shot.id} shot={shot} />
       ))}
 
       {scene.ships.map(ship => {
-        const mark = SHIP_MARK[ship.role]
+        const drawn = ship.hull && ship.hull.length > 0 ? hullBox(ship.hull) : stockBox(ship.role)
         return (
           <div
             key={ship.id}
@@ -154,29 +150,38 @@ export function MapView({ scene }: { scene: MapScene }) {
               height: 0,
             }}
           >
-            <div style={{
-              position: 'absolute',
-              left: -mark.width / 2,
-              top: -mark.height / 2 - 6,
-              width: mark.width,
-              height: 3,
-              backgroundColor: '#3f3f46',
-              borderRadius: 2,
-            }}>
+            {ship.health < ship.maxHealth && (
+              <div
+                data-health-bar=""
+                style={{
+                  position: 'absolute',
+                  left: drawn.left,
+                  top: drawn.top - 6,
+                  width: drawn.width,
+                  height: 3,
+                  backgroundColor: '#3f3f46',
+                  borderRadius: 2,
+                }}
+              >
+                <div style={{
+                  width: `${(ship.health / ship.maxHealth) * 100}%`,
+                  height: '100%',
+                  backgroundColor: '#4ade80',
+                  borderRadius: 2,
+                }} />
+              </div>
+            )}
+            {ship.hull && ship.hull.length > 0 ? (
+              <Hull cells={ship.hull} heading={ship.heading} />
+            ) : (
               <div style={{
-                width: `${(ship.health / ship.maxHealth) * 100}%`,
-                height: '100%',
-                backgroundColor: '#4ade80',
-                borderRadius: 2,
-              }} />
-            </div>
-            <div style={{
-              position: 'absolute',
-              left: -mark.width / 2,
-              top: -mark.height / 2,
-            }}>
-              <ShipMark role={ship.role} color={hull(ship)} heading={ship.heading} />
-            </div>
+                position: 'absolute',
+                left: drawn.left,
+                top: drawn.top,
+              }}>
+                <ShipMark role={ship.role} color={hullColor(ship)} heading={ship.heading} />
+              </div>
+            )}
           </div>
         )
       })}
@@ -184,14 +189,101 @@ export function MapView({ scene }: { scene: MapScene }) {
   )
 }
 
-function Laser({ laser }: { laser: { x0: number; y0: number; x1: number; y1: number; side: 'player' | 'rival' } }) {
-  const color = laser.side === 'rival' ? '#fca5a5' : '#fef08a'
+function ShotGlyph({ shot }: { shot: { id: string; x: number; y: number; side: 'player' | 'rival'; splash: boolean; mining: boolean; angle: number } }) {
+  const color = shot.side === 'rival' ? '#fca5a5' : shot.splash ? '#e879f9' : '#fef08a'
+  if (shot.mining) {
+    const length = 18
+    const beam = '#fef08a'
+    return (
+      <div
+        data-shot={shot.id}
+        data-shot-kind="mining"
+        style={{
+          position: 'absolute',
+          left: shot.x - Math.cos(shot.angle) * length,
+          top: shot.y - Math.sin(shot.angle) * length - 1,
+          width: length,
+          height: 2,
+          backgroundColor: beam,
+          boxShadow: `0 0 6px ${beam}`,
+          transformOrigin: '0 50%',
+          transform: `rotate(${shot.angle}rad)`,
+        }}
+      />
+    )
+  }
+  if (shot.splash) {
+    return (
+      <div
+        data-shot={shot.id}
+        data-shot-kind="missile"
+        style={{
+          position: 'absolute',
+          left: shot.x - 9,
+          top: shot.y - 4,
+          width: 18,
+          height: 8,
+          backgroundColor: color,
+          clipPath: 'polygon(0% 25%, 62% 25%, 62% 0%, 100% 50%, 62% 100%, 62% 75%, 0% 75%)',
+          transform: `rotate(${shot.angle}rad)`,
+          transformOrigin: 'center',
+        }}
+      />
+    )
+  }
+  return (
+    <div
+      data-shot={shot.id}
+      data-shot-kind="gun"
+      style={{
+        position: 'absolute',
+        left: shot.x - 2,
+        top: shot.y - 2,
+        width: 5,
+        height: 5,
+        borderRadius: 5,
+        backgroundColor: color,
+      }}
+    />
+  )
+}
+
+function Blast({ blast }: { blast: { id: number; side: 'player' | 'rival'; size: number; bright: number; cells: { x: number; y: number }[] } }) {
+  const color = blast.side === 'rival' ? '#fca5a5' : '#e879f9'
+  const gap = 1
+  return (
+    <>
+      {blast.cells.map(cell => (
+        <div
+          key={`${cell.x},${cell.y}`}
+          data-blast={blast.id}
+          data-blast-cell={`${cell.x},${cell.y}`}
+          data-side={blast.side}
+          style={{
+            position: 'absolute',
+            left: cell.x,
+            top: cell.y,
+            width: Math.max(1, blast.size - gap),
+            height: Math.max(1, blast.size - gap),
+            backgroundColor: color,
+            opacity: Math.max(0, Math.min(1, blast.bright)) * 0.85,
+            boxShadow: `0 0 6px ${color}`,
+          }}
+        />
+      ))}
+    </>
+  )
+}
+
+function Laser({ laser }: { laser: { x0: number; y0: number; x1: number; y1: number; side: 'player' | 'rival'; source: 'cannon' | 'laser' } }) {
+  const color = beamColor(laser)
   const length = Math.hypot(laser.x1 - laser.x0, laser.y1 - laser.y0)
   const angle = Math.atan2(laser.y1 - laser.y0, laser.x1 - laser.x0) * 180 / Math.PI
   return (
     <div
       data-laser=""
       data-side={laser.side}
+      data-source={laser.source}
       style={{
         position: 'absolute',
         left: laser.x0,
@@ -207,7 +299,65 @@ function Laser({ laser }: { laser: { x0: number; y0: number; x1: number; y1: num
   )
 }
 
-function hull(ship: { side: 'player' | 'rival'; role: 'miner' | 'fighter' }): string {
+function beamColor(laser: { side: 'player' | 'rival'; source: 'cannon' | 'laser' }): string {
+  if (laser.source === 'laser') return laser.side === 'rival' ? '#ef4444' : '#22d3ee'
+  return laser.side === 'rival' ? '#fca5a5' : '#fef08a'
+}
+
+function stockBox(role: 'miner' | 'fighter'): { left: number; top: number; width: number; height: number } {
+  const mark = SHIP_MARK[role]
+  return { left: -mark.width / 2, top: -mark.height / 2, width: mark.width, height: mark.height }
+}
+
+function hullBox(cells: HullCell[]): { left: number; top: number; width: number; height: number; size: number } {
+  const minX = Math.min(...cells.map(cell => cell.x))
+  const maxX = Math.max(...cells.map(cell => cell.x))
+  const minY = Math.min(...cells.map(cell => cell.y))
+  const maxY = Math.max(...cells.map(cell => cell.y))
+  const size = HULL_EXTENT / Math.max(maxX - minX + 1, maxY - minY + 1)
+  return {
+    left: minX * size - size / 2,
+    top: minY * size - size / 2,
+    width: (maxX - minX + 1) * size,
+    height: (maxY - minY + 1) * size,
+    size,
+  }
+}
+
+function Hull({ cells, heading }: { cells: HullCell[]; heading: number }) {
+  const box = hullBox(cells)
+  return (
+    <div
+      data-ship-hull=""
+      style={{
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+        transform: `rotate(${heading + Math.PI / 2}rad)`,
+        transformOrigin: '0 0',
+      }}
+    >
+      {cells.map(cell => (
+        <span
+          key={`${cell.x},${cell.y}`}
+          data-hull-cell={`${cell.x},${cell.y}`}
+          style={{
+            position: 'absolute',
+            left: cell.x * box.size - box.size / 2,
+            top: cell.y * box.size - box.size / 2,
+            width: box.size,
+            height: box.size,
+            backgroundColor: cell.color,
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function hullColor(ship: { side: 'player' | 'rival'; role: 'miner' | 'fighter' }): string {
   if (ship.side === 'rival') return '#ef4444'
   if (ship.role === 'fighter') return '#38bdf8'
   return '#e2e8f0'

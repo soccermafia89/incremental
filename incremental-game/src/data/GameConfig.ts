@@ -27,6 +27,8 @@ import upgradesYaml from './upgrades/upgrades.yaml?raw'
 import { parseUpgradeTable, type UpgradeTable } from './upgrades'
 import designerYaml from './designer/designer.yaml?raw'
 import { parseDesigner, type DesignerConfig } from './designer'
+import weaponUpgradesYaml from './weapons/upgrades.yaml?raw'
+import { parseWeaponUpgrades, type WeaponUpgradeTable } from './weapons/upgrades'
 
 /** One object the match is built from. Each field is that module's own file. */
 export interface GameConfig {
@@ -44,6 +46,7 @@ export interface GameConfig {
   upgrades: UpgradeTable
   mining: MiningTable
   designer: DesignerConfig
+  weaponUpgrades: WeaponUpgradeTable
 }
 
 let cached: GameConfig | null = null
@@ -65,6 +68,7 @@ export function loadGameConfig(): GameConfig {
     upgrades: load(upgradesYaml, parseUpgradeTable),
     mining: load(miningYaml, parseMining),
     designer: load(designerYaml, parseDesigner),
+    weaponUpgrades: load(weaponUpgradesYaml, parseWeaponUpgrades),
   }
   return cached
 }

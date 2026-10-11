@@ -8,6 +8,7 @@ Deep-dive documentation for AI coding agents.
 | --- | --- |
 | [gotchas.md](gotchas.md) | **Always.** |
 | [architecture.md](architecture.md) | Where the layers are |
+| [running-and-screenshots.md](running-and-screenshots.md) | Running the app, or a one-off screenshot |
 | [persistence.md](persistence.md) | Save/load, or a domain shape change |
 | [playing-the-game.md](playing-the-game.md) | curl, MCP, or `?server=` |
 

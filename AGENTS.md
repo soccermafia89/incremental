@@ -70,6 +70,7 @@ add or update a test.
 | --- | --- |
 | [`ai/gotchas.md`](ai/gotchas.md) | **Always.** |
 | [`ai/architecture.md`](ai/architecture.md) | Where the layers are |
+| [`ai/running-and-screenshots.md`](ai/running-and-screenshots.md) | Running the app, or a one-off screenshot |
 | [`ai/persistence.md`](ai/persistence.md) | Save/load, or a domain shape change |
 | [`ai/playing-the-game.md`](ai/playing-the-game.md) | curl, MCP, or `?server=` |
 

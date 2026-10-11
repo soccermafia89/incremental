@@ -3,6 +3,9 @@ import type { FighterLevels, FighterUpgradeId } from '../../data/fighter/upgrade
 import { FIGHTER_UPGRADE_IDS, blankFighterLevels } from '../../data/fighter/upgrades'
 import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 
+/** Seconds to build one fighter before any production purchase. */
+const BASE_BUILD_SECONDS = 60
+
 export interface FighterStats {
   values: FighterLevels
   costs: Record<FighterUpgradeId, number | null>
@@ -33,10 +36,11 @@ export class FighterUpgrades {
     return upgradeValue(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
-  /** Units per second. Each purchase makes the build take 70% as long as the one before it. */
+  /** Units per second. The starting rate finishes one fighter in 60 seconds. Each purchase makes the build take 70% as long. */
   private productionRate(config: GameConfig): number {
     const start = config.fighterUpgrades.production.start
-    return start * (10 / 7) ** this.purchased.production
+    const perSecond = config.fighter.units / BASE_BUILD_SECONDS
+    return perSecond * start * (10 / 7) ** this.purchased.production
   }
 
   price(upgrade: FighterUpgradeId, config: GameConfig): number {

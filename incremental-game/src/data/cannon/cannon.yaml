@@ -1,5 +1,7 @@
-# Both bases. Range is pixels from the base center. Rate is shots per second.
-# shotSpeed crosses that range in one frame, so each shot is a laser. The rate is unchanged.
+# Both bases. Distances are pixels from the base center. Rate is volleys per second.
+# Stasis until an enemy enters wake. Combat then shoots every enemy inside range
+# until that circle is empty. shotSpeed crosses range in one frame, so each shot is a laser.
+wake: 150
 range: 300
 rate: 9
 damage: 1000

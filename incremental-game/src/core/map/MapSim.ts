@@ -1,4 +1,5 @@
 import type { GameConfig } from '../../data/GameConfig'
+import { isEngineUnlock, isWeaponUnlock } from '../../data/designer'
 import { MINING_IDS, type MiningPurchase } from '../../data/mining'
 import { UPGRADE_IDS } from '../../data/upgrades'
 import { breakAsteroid } from '../asteroid/break'
@@ -6,18 +7,25 @@ import { AsteroidField } from '../asteroid/AsteroidField'
 import { Bank } from '../base/Bank'
 import { Clock } from '../game/Clock'
 import { Rng } from '../game/rng'
-import type { MapScene, MapState } from '../game/state'
+import type { FleetScene, MapScene, MapState, ProductionDesign } from '../game/state'
 import { EnemyUpgrades } from '../enemy/Upgrades'
 import { FighterUpgrades } from '../fighter/Upgrades'
 import { MiningUpgrades } from '../mining/Mining'
-import { ShipDesign, type DesignResult } from '../designer/Design'
+import { ShipDesign, type DesignGhost, type DesignResult, type PlacedPart, type WeaponMods } from '../designer'
 import type { EnemyUpgradeId } from '../../data/enemy/upgrades'
 import type { FighterUpgradeId } from '../../data/fighter/upgrades'
-import { Miners, MinerUpgrades, type MinerUpgradeId, type MinerWorld, type Side, type UpgradeResult } from '../miner'
+import { Miners, MinerUpgrades, blastCells, type MinerUpgradeId, type MinerWorld, type Side, type UpgradeResult } from '../miner'
 import { OreField } from '../ore/OreField'
-import { Volley } from '../shot/Shot'
+import { Volley, type FiredShot } from '../shot/Shot'
+import { WeaponUpgrades } from '../weapons/Upgrades'
+import type { WeaponUpgradeId } from '../../data/weapons/upgrades'
 import { MapLayout } from './Layout'
 import { SpawnClock } from './SpawnClock'
+
+/** How long a ship laser line stays after the step that fired it. The hit already landed. */
+const LASER_BEAM_MS = 200
+/** How long the lit cells of a missile blast stay on the map. */
+const BLAST_MS = 400
 
 /** The live map: bases, rocks, ore, shots, and miners. Game only calls this. */
 export class MapSim {
@@ -33,7 +41,10 @@ export class MapSim {
   private readonly fighterUpgrades: FighterUpgrades
   private readonly enemyUpgrades: EnemyUpgrades
   private readonly mining: MiningUpgrades
+  private readonly weaponUpgrades: WeaponUpgrades
   private readonly design: ShipDesign
+  /** Which ship the fighter bar is building. */
+  private productionDesign: ProductionDesign
   private readonly miners: Miners
   private readonly spawns: SpawnClock
   private readonly goldenSpawns: SpawnClock
@@ -53,9 +64,15 @@ export class MapSim {
   /** Time until each base cannon can fire. Not saved. */
   private playerCannonMs = 0
   private rivalCannonMs = 0
-  /** Beams drawn for the cannon shots fired this step. Not saved. */
-  private lasers: MapScene['lasers'] = []
+  /** Combat shoots every enemy inside cannon range. Stasis ignores them until one enters wake. */
+  private baseCombat = false
+  private rivalCombat = false
+  /** Beams drawn for shots. A ship laser keeps `life`. A cannon bolt does not. Not saved. */
+  private lasers: (MapScene['lasers'][number] & { life?: number })[] = []
   private nextLaser = 1
+  /** Lit map cells of a missile blast. Not saved. */
+  private blasts: { id: number; side: Side; size: number; life: number; cells: { x: number; y: number }[] }[] = []
+  private nextBlast = 1
   private readonly world: MinerWorld
 
   private constructor(config: GameConfig, rng: Rng, state: MapState | null) {
@@ -75,9 +92,14 @@ export class MapSim {
     this.mining = state
       ? MiningUpgrades.restore(state.miningLevels, state.tractorBeam, state.golden, state.miningUnlocked, state.automine)
       : MiningUpgrades.create()
+    this.weaponUpgrades = state ? WeaponUpgrades.restore(state.weaponLevels) : WeaponUpgrades.create()
     this.design = state
-      ? ShipDesign.restore(config, state.shipDesigner, state.parts, state.nextPartId)
+      ? ShipDesign.restore(config, state.shipDesigner, state.laser, state.missile, state.mediumEngine, state.largeEngine, state.parts, state.nextPartId, state.savedDesign)
       : ShipDesign.create()
+    this.productionDesign = state?.productionDesign ?? 'fighter'
+    if (this.productionDesign === 'saved' && !this.design.hasSaved()) {
+      throw new Error('production requires a saved design')
+    }
     this.spawns = state ? SpawnClock.restore(state.spawnAccumulatorMs) : SpawnClock.start()
     this.goldenSpawns = state ? SpawnClock.restore(state.goldenSpawnAccumulatorMs) : SpawnClock.start()
     this.pendingMiners = state?.pendingMiners ?? 0
@@ -88,6 +110,8 @@ export class MapSim {
     this.rivalCap = state?.rivalCap ?? 1
     this.rivalElapsedMs = state?.rivalElapsedMs ?? 0
     this.gift = state?.gift ?? config.bank.gift
+    this.baseCombat = state?.baseCombat ?? false
+    this.rivalCombat = state?.rivalCombat ?? false
     this.world = {
       config,
       layout: this.layout,
@@ -97,8 +121,23 @@ export class MapSim {
       upgrades: this.upgrades,
       fighterUpgrades: this.fighterUpgrades,
       enemyUpgrades: this.enemyUpgrades,
+      weaponUpgrades: this.weaponUpgrades,
       mining: this.mining,
       bank: this.bank,
+      hit: shot => this.resolveHit(shot),
+      beam: (from, to, side) => {
+        this.lasers.push({
+          id: this.nextLaser,
+          x0: from.x,
+          y0: from.y,
+          x1: to.x,
+          y1: to.y,
+          side,
+          source: 'laser',
+          life: LASER_BEAM_MS,
+        })
+        this.nextLaser += 1
+      },
     }
   }
 
@@ -124,6 +163,37 @@ export class MapSim {
   }
 
   /**
+   * Max every upgrade through the ship designer. Each level uses the same effects as buying it.
+   * Nothing is charged. The names are written out here, so an upgrade added later is not included.
+   */
+  upgradesToShipDesign(): void {
+    if (!this.mining.hasAutomine()) {
+      for (const upgrade of ['speed', 'damage', 'fireRate', 'carry', 'count', 'production'] as const) {
+        while (!this.upgrades.maxed(upgrade, this.config)) this.grantMiner(upgrade)
+      }
+    }
+    if (!this.mining.hasUnlock()) this.grantMining('unlock')
+    for (const upgrade of ['size', 'spawnRate'] as const) {
+      while (!this.mining.maxed(upgrade, this.config)) this.grantMining(upgrade)
+    }
+    if (!this.mining.hasGolden()) this.grantMining('golden')
+    while (!this.mining.maxed('goldenSpawnRate', this.config)) this.grantMining('goldenSpawnRate')
+    if (!this.mining.hasTractor()) this.grantMining('tractorBeam')
+    if (!this.mining.hasAutomine()) this.grantMining('automine')
+    for (const upgrade of ['speed', 'attackRate', 'health', 'damage', 'count', 'production'] as const) {
+      while (!this.fighterUpgrades.maxed(upgrade, this.config)) this.grantFighter(upgrade)
+    }
+    for (const upgrade of ['spawnRate', 'capacity', 'health', 'damage', 'attackRate'] as const) {
+      while (!this.enemyUpgrades.maxed(upgrade, this.config)) this.grantEnemy(upgrade)
+    }
+    if (!this.design.hasUnlock()) this.design.unlock()
+    if (!this.design.hasWeapon('laser')) this.design.unlockWeapon('laser')
+    if (!this.design.hasWeapon('missile')) this.design.unlockWeapon('missile')
+    if (!this.design.hasEngine('mediumEngine')) this.design.unlockEngine('mediumEngine')
+    if (!this.design.hasEngine('largeEngine')) this.design.unlockEngine('largeEngine')
+  }
+
+  /**
    * Max every miner upgrade and every upgrade on the Mining page.
    * Each level uses the same effects as buying it. Nothing is charged.
    */
@@ -141,6 +211,25 @@ export class MapSim {
     if (!this.mining.hasGolden()) this.grantMining('golden')
     while (!this.mining.maxed('goldenSpawnRate', this.config)) this.grantMining('goldenSpawnRate')
     if (!this.mining.hasTractor()) this.grantMining('tractorBeam')
+  }
+
+  /** The effects of one fighter purchase, apart from the price. */
+  private grantFighter(upgrade: FighterUpgradeId): void {
+    this.fighterUpgrades.upgrade(upgrade)
+    if (upgrade === 'health') {
+      this.miners.raiseFighterHealth(this.config.fighterUpgrades.health.step, this.fighterUpgrades.health(this.config))
+    }
+    if (upgrade === 'count') this.fillFighters()
+  }
+
+  /** The effects of one enemy purchase, apart from the price. */
+  private grantEnemy(upgrade: EnemyUpgradeId): void {
+    const before = this.enemyUpgrades.levels().capacity
+    this.enemyUpgrades.upgrade(upgrade)
+    if (upgrade === 'capacity') this.raiseCapacity(before)
+    if (upgrade === 'health') {
+      this.miners.raiseRivalHealth(this.config.enemyUpgrades.health.step, this.enemyUpgrades.health(this.config))
+    }
   }
 
   /** The effects of one miner purchase, apart from the price. */
@@ -173,6 +262,7 @@ export class MapSim {
       this.pendingMiners = 0
       this.minerWork = 0
       this.miners.dismissPlayerMiners(this.world)
+      this.miners.holdTheField(this.world)
       return
     }
     this.mining.upgrade(upgrade)
@@ -181,22 +271,13 @@ export class MapSim {
 
   upgradeEnemy(upgrade: EnemyUpgradeId): UpgradeResult {
     return this.buy(this.enemyUpgrades.maxed(upgrade, this.config), this.enemyUpgrades.price(upgrade, this.config), () => {
-      const before = this.enemyUpgrades.levels().capacity
-      this.enemyUpgrades.upgrade(upgrade)
-      if (upgrade === 'capacity') this.raiseCapacity(before)
-      if (upgrade === 'health') {
-        this.miners.raiseRivalHealth(this.config.enemyUpgrades.health.step, this.enemyUpgrades.health(this.config))
-      }
+      this.grantEnemy(upgrade)
     })
   }
 
   upgradeFighterStat(upgrade: FighterUpgradeId): UpgradeResult {
     return this.buy(this.fighterUpgrades.maxed(upgrade, this.config), this.fighterUpgrades.price(upgrade, this.config), () => {
-      this.fighterUpgrades.upgrade(upgrade)
-      if (upgrade === 'health') {
-        this.miners.raiseFighterHealth(this.config.fighterUpgrades.health.step, this.fighterUpgrades.health(this.config))
-      }
-      if (upgrade === 'count') this.fillFighters()
+      this.grantFighter(upgrade)
     })
   }
 
@@ -206,15 +287,74 @@ export class MapSim {
     })
   }
 
+  private weaponMods(): WeaponMods {
+    return {
+      laserRange: this.weaponUpgrades.laserRange(this.config),
+      laserEnergy: this.weaponUpgrades.laserEnergy(this.config),
+      cannonRate: this.weaponUpgrades.cannonRate(this.config),
+      cannonDamage: this.weaponUpgrades.cannonDamage(this.config),
+      missileRate: this.weaponUpgrades.missileRate(this.config),
+      missileDamage: this.weaponUpgrades.missileDamage(this.config),
+    }
+  }
+
+  upgradeWeapon(upgrade: WeaponUpgradeId): UpgradeResult | 'unknown' {
+    if (!this.design.hasUnlock()) return 'unknown'
+    if ((upgrade === 'laserRange' || upgrade === 'laserEnergy') && !this.design.hasWeapon('laser')) return 'unknown'
+    if ((upgrade === 'missileFireRate' || upgrade === 'missileDamage') && !this.design.hasWeapon('missile')) return 'unknown'
+    return this.buy(this.weaponUpgrades.maxed(upgrade, this.config), this.weaponUpgrades.price(upgrade, this.config), () => {
+      this.weaponUpgrades.upgrade(upgrade)
+    })
+  }
+
+  unlockWeapon(id: string): UpgradeResult | 'unknown' {
+    if (!this.design.hasUnlock() || !isWeaponUnlock(id)) return 'unknown'
+    return this.buy(this.design.hasWeapon(id), this.config.designer.weapons[id].cost, () => {
+      this.design.unlockWeapon(id)
+    })
+  }
+
+  unlockEngine(id: string): UpgradeResult | 'unknown' {
+    if (!this.design.hasUnlock() || !isEngineUnlock(id)) return 'unknown'
+    return this.buy(this.design.hasEngine(id), this.config.designer.engines[id].cost, () => {
+      this.design.unlockEngine(id)
+    })
+  }
+
   placeComponent(component: string, x: number, y: number, rotation: number): DesignResult {
     return this.design.place(this.config, component, x, y, rotation)
+  }
+
+  saveDesign(): DesignResult {
+    return this.design.commit()
+  }
+
+  importDesign(parts: PlacedPart[]): DesignResult {
+    return this.design.install(this.config, parts)
+  }
+
+  resetDesign(): DesignResult {
+    return this.design.clear()
+  }
+
+  chooseProduction(design: string): DesignResult {
+    if (!this.design.hasUnlock()) return 'unknown'
+    if (design === 'fighter') {
+      this.productionDesign = 'fighter'
+      return 'ok'
+    }
+    if (design === 'saved' && this.design.hasSaved()) {
+      this.productionDesign = 'saved'
+      return 'ok'
+    }
+    return 'unknown'
   }
 
   removeComponent(id: string): DesignResult {
     return this.design.remove(this.config, id)
   }
 
-  designPreview(component: string, x: number, y: number, rotation: number): { x: number; y: number }[] | null {
+  designPreview(component: string, x: number, y: number, rotation: number): DesignGhost | null {
     return this.design.preview(this.config, component, x, y, rotation)
   }
 
@@ -228,6 +368,7 @@ export class MapSim {
   upgradeMining(upgrade: MiningPurchase): UpgradeResult {
     if (this.mining.hasAutomine()) return 'maxed'
     if (upgrade === 'automine') {
+      if (!this.mining.hasTractor()) return 'maxed'
       return this.buy(false, this.mining.autominePrice(this.config), () => {
         this.grantMining('automine')
       })
@@ -259,12 +400,29 @@ export class MapSim {
   scene(): MapScene {
     return {
       ...this.layout.scene(),
+      baseCombat: this.baseCombat,
+      rivalCombat: this.rivalCombat,
       maxAsteroids: this.config.asteroids.max,
       money: this.bank.amount,
       asteroids: this.asteroids.scene(),
       ores: this.ore.scene(),
       shots: this.shots.scene(),
-      lasers: this.lasers.map(laser => ({ ...laser })),
+      lasers: this.lasers.map(laser => ({
+        id: laser.id,
+        x0: laser.x0,
+        y0: laser.y0,
+        x1: laser.x1,
+        y1: laser.y1,
+        side: laser.side,
+        source: laser.source,
+      })),
+      blasts: this.blasts.map(blast => ({
+        id: blast.id,
+        side: blast.side,
+        size: blast.size,
+        bright: blast.life / BLAST_MS,
+        cells: blast.cells,
+      })),
       ships: this.miners.scene(this.world),
       spawnInMs: this.spawns.remaining(this.mining.spawnInterval(this.config)),
       asteroidSize: this.mining.rockSize(this.config),
@@ -275,8 +433,10 @@ export class MapSim {
       fighter: this.fighterUpgrades.stats(this.config),
       nextFighter: this.nextFighter(),
       enemy: this.enemyScene(),
+      weapon: this.weaponUpgrades.stats(this.config),
       gift: this.gift,
-      designer: this.design.scene(this.config),
+      designer: this.design.scene(this.config, this.weaponMods()),
+      fleet: this.fleetScene(),
     }
   }
 
@@ -294,6 +454,7 @@ export class MapSim {
       miningLevels: this.mining.levels(),
       fighterLevels: this.fighterUpgrades.levels(),
       enemyLevels: this.enemyUpgrades.levels(),
+      weaponLevels: this.weaponUpgrades.levels(),
       tractorBeam: this.mining.hasTractor(),
       golden: this.mining.hasGolden(),
       miningUnlocked: this.mining.hasUnlock(),
@@ -306,21 +467,21 @@ export class MapSim {
       rivalElapsedMs: this.rivalElapsedMs,
       fleetAnswered: this.fleetAnswered,
       gift: this.gift,
+      baseCombat: this.baseCombat,
+      rivalCombat: this.rivalCombat,
+      productionDesign: this.productionDesign,
       ...this.design.save(),
     }
   }
 
   private step(dtMs: number): void {
-    this.lasers = []
+    this.fadeBeams(dtMs)
+    this.fadeBlasts(dtMs)
     this.ore.drift(dtMs, this.config)
     this.miners.move(dtMs, this.world, () => this.rng.next())
     this.fireCannons(dtMs)
     this.shots.fly(dtMs, this.config.ships.shotSpeed, this.config.cannon.shotSpeed, shot => {
-      if (shot.shipId) {
-        this.miners.hurt(shot.shipId, shot.damage, this.world, !shot.cannon)
-        return
-      }
-      breakAsteroid(shot, this.asteroids, this.ore, this.miners, this.mining, this.bank, this.config, () => this.rng.next())
+      this.resolveHit(shot)
     }, id => this.miners.locate(id))
     if (!this.mining.hasAutomine()) {
       this.spawns.tick(dtMs, this.mining.spawnInterval(this.config), () => {
@@ -396,7 +557,46 @@ export class MapSim {
     for (let i = 0; i < added; i += 1) this.miners.spawn('rival', this.world)
   }
 
-  /** Each base shoots the nearest enemy ship inside its range. The first shot is immediate. */
+  /** Drop cannon bolts. Keep a ship laser until its time runs out. */
+  private fadeBeams(dtMs: number): void {
+    const still: (MapScene['lasers'][number] & { life?: number })[] = []
+    for (const beam of this.lasers) {
+      if (beam.life === undefined) continue
+      beam.life -= dtMs
+      if (beam.life > 0) still.push(beam)
+    }
+    this.lasers = still
+  }
+
+  /** A missile blast fades after it lights the cells it covered. */
+  private fadeBlasts(dtMs: number): void {
+    const still: typeof this.blasts = []
+    for (const blast of this.blasts) {
+      blast.life -= dtMs
+      if (blast.life > 0) still.push(blast)
+    }
+    this.blasts = still
+  }
+
+  /** A traveling shot that arrived, or a laser that hit in the same step. */
+  private resolveHit(shot: FiredShot): void {
+    if (shot.shipId) this.miners.hurt(shot.shipId, shot.damage, this.world, !shot.cannon)
+    else breakAsteroid({ ...shot, id: 'hit' }, this.asteroids, this.ore, this.miners, this.mining, this.bank, this.config, () => this.rng.next())
+    if (shot.splash) {
+      this.miners.splash(shot, this.world)
+      const cell = this.config.map.cell
+      this.blasts.push({
+        id: this.nextBlast,
+        side: shot.side,
+        size: cell,
+        life: BLAST_MS,
+        cells: blastCells(shot.x, shot.y, cell),
+      })
+      this.nextBlast += 1
+    }
+  }
+
+  /** Stasis until an enemy enters wake. Combat then shoots every enemy inside range. */
   private fireCannons(dtMs: number): void {
     this.fireCannon('player', dtMs)
     this.fireCannon('rival', dtMs)
@@ -404,37 +604,61 @@ export class MapSim {
 
   private fireCannon(side: Side, dtMs: number): void {
     const home = this.layout.home(side)
-    const target = this.miners.nearestEnemy(side, home, this.config.cannon.range)
-    if (!target) return
+    const wake = this.miners.enemiesWithin(side, home, this.config.cannon.wake)
+    const targets = this.miners.enemiesWithin(side, home, this.config.cannon.range)
+    if (!this.combatOf(side)) {
+      if (wake.length === 0) return
+      this.setCombat(side, true)
+      this.setCannonCooldown(side, 0)
+    }
+    if (targets.length === 0) {
+      this.setCombat(side, false)
+      this.setCannonCooldown(side, 0)
+      return
+    }
     const cooldown = side === 'player' ? this.playerCannonMs : this.rivalCannonMs
     const next = cooldown - dtMs
     if (next > 0) {
       this.setCannonCooldown(side, next)
       return
     }
-    this.shots.fire({
-      x: home.x,
-      y: home.y,
-      targetX: target.x,
-      targetY: target.y,
-      asteroidId: null,
-      shipId: target.id,
-      side,
-      damage: this.config.cannon.damage,
-      cannon: true,
-    })
-    this.lasers.push({
-      id: this.nextLaser,
-      x0: home.x,
-      y0: home.y,
-      x1: target.x,
-      y1: target.y,
-      side,
-    })
-    this.nextLaser += 1
+    for (const target of targets) {
+      this.shots.fire({
+        x: home.x,
+        y: home.y,
+        targetX: target.x,
+        targetY: target.y,
+        asteroidId: null,
+        shipId: target.id,
+        side,
+        damage: this.config.cannon.damage,
+        splash: false,
+        cannon: true,
+        mining: false,
+      })
+      this.lasers.push({
+        id: this.nextLaser,
+        x0: home.x,
+        y0: home.y,
+        x1: target.x,
+        y1: target.y,
+        side,
+        source: 'cannon',
+      })
+      this.nextLaser += 1
+    }
     const interval = Math.round(1000 / this.config.cannon.rate)
     const reloaded = next + interval
     this.setCannonCooldown(side, reloaded < 0 ? 0 : reloaded)
+  }
+
+  private combatOf(side: Side): boolean {
+    return side === 'player' ? this.baseCombat : this.rivalCombat
+  }
+
+  private setCombat(side: Side, combat: boolean): void {
+    if (side === 'player') this.baseCombat = combat
+    else this.rivalCombat = combat
   }
 
   private setCannonCooldown(side: Side, ms: number): void {
@@ -460,11 +684,12 @@ export class MapSim {
   private launchFighter(dtMs: number): void {
     if (this.pendingFighters === 0) return
     this.fighterWork += this.fighterUpgrades.value('production', this.config) * dtMs
-    const cost = this.config.fighter.units * 1000
+    const cost = this.productionUnits() * 1000
     while (this.fighterWork >= cost && this.pendingFighters > 0) {
       this.fighterWork -= cost
       this.pendingFighters -= 1
-      this.miners.spawnFighter(this.world)
+      const craft = this.productionDesign === 'saved' ? this.design.combat(this.config, this.weaponMods()) : null
+      this.miners.spawnFighter(this.world, craft === null ? null : { speed: craft.speed, damage: craft.damage, weapons: craft.weapons.map(gun => ({ ...gun })), cooldown: { weapon: 0, laser: 0, missile: 0 }, cells: craft.cells }, craft?.health ?? null)
     }
     if (this.pendingFighters === 0) this.fighterWork = 0
   }
@@ -493,14 +718,46 @@ export class MapSim {
     while (this.fightersHeld() < this.fighterCap()) this.pendingFighters += 1
   }
 
-  private nextMiner(): { progress: number } | null {
+  private nextMiner(): { progress: number; cells: { x: number; y: number; color: string }[] } | null {
     if (this.pendingMiners === 0) return null
-    return { progress: Math.min(1, this.minerWork / (this.config.ships.units * 1000)) }
+    return {
+      progress: Math.min(1, this.minerWork / (this.config.ships.units * 1000)),
+      cells: ShipDesign.minerHull(this.config),
+    }
   }
 
-  private nextFighter(): { progress: number } | null {
+  private nextFighter(): { progress: number; cells: { x: number; y: number; color: string }[] } | null {
     if (this.pendingFighters === 0) return null
-    return { progress: Math.min(1, this.fighterWork / (this.config.fighter.units * 1000)) }
+    const units = this.productionUnits()
+    const saved = this.productionDesign === 'saved' ? this.design.savedShape(this.config) : null
+    const cells = saved
+      ? saved.cells.map(cell => ({ x: cell.x, y: cell.y, color: cell.color }))
+      : ShipDesign.minerHull(this.config)
+    if (units === 0) return { progress: 1, cells }
+    return { progress: Math.min(1, this.fighterWork / (units * 1000)), cells }
+  }
+
+  /** Build units for the ship currently selected in Fleet Design. */
+  private productionUnits(): number {
+    if (this.productionDesign === 'saved') {
+      const saved = this.design.savedShape(this.config)
+      if (saved) return saved.units
+    }
+    return this.config.fighter.units
+  }
+
+  private fleetScene(): FleetScene {
+    const saved = this.design.savedShape(this.config)
+    const choices: FleetScene['choices'] = [{
+      id: 'fighter',
+      label: 'Default fighter',
+      units: this.config.fighter.units,
+      cells: ShipDesign.minerLayout(this.config),
+    }]
+    if (saved) {
+      choices.push({ id: 'saved', label: 'Saved design', units: saved.units, cells: saved.cells })
+    }
+    return { selected: this.productionDesign === 'saved' && saved ? 'saved' : 'fighter', choices }
   }
 
   private buy(maxed: boolean, price: number, apply: () => void): UpgradeResult {

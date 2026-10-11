@@ -28,8 +28,9 @@ count:
   step: 1
   max: 5
   cost: 20
-# Units built each second on the fighter bar. Four times the miner production cost.
-# Each purchase makes the build take 70% as long as the previous one. `max` is still the last rate step.
+# Units built each second on the fighter bar, scaled so the starting rate still finishes
+# `fighter.units` in 60 seconds. Each purchase makes the build take 70% as long.
+# `max` is still the last rate step.
 production:
   start: 1
   step: 1
