@@ -5,16 +5,33 @@ import type { MinerWorld } from './world'
 
 /** How far this ship can shoot. A designed ship uses its farthest powered gun. */
 export function weaponReach(ship: ShipState, world: MinerWorld): number {
-  const stock = world.config.ships.weaponRange
-  if (!ship.craft || ship.craft.weapons.length === 0) return stock
-  return ship.craft.weapons.reduce((max, gun) => Math.max(max, gunRange(gun, world)), 0)
+  if (ship.craft && ship.craft.weapons.length > 0) {
+    return ship.craft.weapons.reduce((max, gun) => Math.max(max, gunRange(gun, world)), 0)
+  }
+  if (ship.role === 'corvette') {
+    const gun = corvetteGunRange(world)
+    if (ship.missiles) return Math.max(gun, world.config.designer.components.missile.range)
+    return gun
+  }
+  return stockRange(ship, world)
 }
 
-/** Where this ship stops. A designed ship closes until its shortest powered gun can fire. */
+/** Where this ship stops. A designed ship closes until its shortest powered gun can fire. A corvette keeps closing for another 15% of its cannon range after it can already fire. */
 export function weaponStop(ship: ShipState, world: MinerWorld): number {
-  const stock = world.config.ships.weaponRange
-  if (!ship.craft || ship.craft.weapons.length === 0) return stock
+  if (ship.role === 'corvette') return Math.round(corvetteGunRange(world) * 0.85)
+  if (!ship.craft || ship.craft.weapons.length === 0) return stockRange(ship, world)
   return ship.craft.weapons.reduce((min, gun) => Math.min(min, gunRange(gun, world)), Infinity)
+}
+
+/** Friendly miners use their own reach. Everyone else uses the stock gun. */
+function stockRange(ship: ShipState, world: MinerWorld): number {
+  if (ship.side === 'player' && ship.role === 'miner') return world.config.ships.minerRange
+  return world.config.ships.weaponRange
+}
+
+/** Half again a fighter gun. `ships.weaponRange` times `corvette.rangeScale`. */
+export function corvetteGunRange(world: MinerWorld): number {
+  return Math.round(world.config.ships.weaponRange * world.config.corvette.rangeScale)
 }
 
 /** Powered guns on a designed ship that reach this target, in placement order. */

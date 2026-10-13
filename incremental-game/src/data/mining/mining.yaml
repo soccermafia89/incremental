@@ -1,25 +1,41 @@
 size:
-  start: 1
-  step: 1
-  max: 3
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 2
+  - value: 3
 spawnRate:
-  start: 1
-  step: 1
-  max: 5
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 2
+  - value: 3
+    cost: 4
+  - value: 4
+    cost: 8
+  - value: 5
 goldenSpawnRate:
-  start: 1
-  step: 1
-  max: 5
-  cost: 1
+  - value: 1
+    cost: 50
+  - value: 2
+    cost: 100
+  - value: 3
+    cost: 200
+  - value: 4
+    cost: 500
+  - value: 5
 golden:
   cost: 50
 tractorBeam:
   cost: 350
 unlock:
   cost: 10
-# Ends the asteroid field. Cost is paid once. perSecond is the income that replaces mining.
+# Ends the asteroid field. Cost is paid once. `payout` arrives all at once every `everyMs`.
 automine:
   cost: 10000
-  perSecond: 200
+  payout: 800
+  everyMs: 5000
+# Shown after automine. One purchase. Money above `above` becomes one crystal, and the whole balance is spent.
+moneyConverter:
+  cost: 100000
+  above: 100000

@@ -1,3 +1,6 @@
 startingMoney: 0
-# First click of the sidebar gift. Each later click pays twice the last one.
-gift: 10000
+# First click of the sidebar gift pays `gift`. The next click pays `giftNext`. Later clicks double.
+gift: 20
+giftNext: 10000
+# First click of the sidebar crystal button. Each later click pays twice the last one.
+crystalGift: 10000

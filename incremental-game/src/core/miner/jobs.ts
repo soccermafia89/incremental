@@ -9,7 +9,7 @@ export const BASE_TARGET = 'base'
 
 /** Rival miners hunt once the tractor beam is on. The fighter always hunts rivals. */
 export function fights(ship: ShipState, world: MinerWorld): boolean {
-  return ship.role === 'fighter' || (ship.side === 'rival' && world.mining.hasTractor())
+  return ship.role === 'fighter' || ship.role === 'corvette' || (ship.side === 'rival' && world.mining.hasTractor())
 }
 
 /**
@@ -20,6 +20,7 @@ export function fights(ship: ShipState, world: MinerWorld): boolean {
  * A ship at war with no enemy left flies to the opposing base and shoots it.
  */
 export function ensureDuty(ship: ShipState, ships: ShipState[], world: MinerWorld): void {
+  if (ship.role === 'platform') return
   if (fights(ship, world)) {
     holdTarget(ship, ships, world)
     return
@@ -108,7 +109,7 @@ export function scoopCells(ships: ShipState[], world: MinerWorld, roll: () => nu
   if (world.mining.hasTractor() || cell < 1) return
   const grids = new Map<string, ShipState[]>()
   for (const ship of ships) {
-    if (ship.role === 'fighter' || full(ship, world)) continue
+    if (ship.role === 'fighter' || ship.role === 'platform' || full(ship, world)) continue
     const key = cellKey(ship.x, ship.y, cell)
     const list = grids.get(key)
     if (list) list.push(ship)

@@ -5,6 +5,7 @@ import { DevGameStatePanel } from './ui/settings/DevGameStatePanel'
 import { DEFAULT_SETTINGS } from './ui/settings/GameSettings'
 import type { GameSettings } from './ui/settings/GameSettings'
 import { FitMap } from './ui/map/FitMap'
+import { DefensePanel } from './ui/upgrades/DefensePanel'
 import { EnemyPanel } from './ui/upgrades/EnemyPanel'
 import { FighterPanel } from './ui/upgrades/FighterPanel'
 import { designFile } from './core/designer'
@@ -43,6 +44,14 @@ function App() {
     setActiveView('map')
   }
 
+  const actDesign = (action: Parameters<typeof session.client.act>[0]) => {
+    return session.client.act(action).then(result => {
+      setActionError(result.ok ? null : result.error)
+      session.setFrame(value => value + 1)
+      return result.ok
+    })
+  }
+
   if (session.connectError) return <FullScreen>{session.connectError}</FullScreen>
   if (!session.ready || !session.client.getGame()) {
     return <FullScreen>Connecting{session.remoteUrl ? ` to ${session.remoteUrl}` : ''}…</FullScreen>
@@ -73,12 +82,13 @@ function App() {
           activeView={activeView}
           onViewChange={handleViewChange}
           devMode={settings.devMode}
-          showMining={!scene.mining.automine.owned}
+          showMining={!scene.mining.moneyConverter.owned}
           showDesigner={scene.designer.owned}
           showFleet={scene.designer.owned}
-          showFighter={scene.mining.tractorBeam.owned}
+          showFighter={scene.mining.tractorBeam.owned && (scene.fighter.costs.count !== null || scene.fighter.costs.production !== null)}
           showEnemy={scene.mining.tractorBeam.owned}
           gift={scene.gift}
+          crystalGift={scene.crystalGift}
           onBuyUpgrades={() => {
             void session.client.act({ type: 'upgradesToShipDesign' }).then(result => {
               setActionError(result.ok ? null : result.error)
@@ -97,27 +107,36 @@ function App() {
               session.setFrame(value => value + 1)
             })
           }}
+          onCrystalGift={() => {
+            void session.client.act({ type: 'claimCrystalGift' }).then(result => {
+              setActionError(result.ok ? null : result.error)
+              session.setFrame(value => value + 1)
+            })
+          }}
         />
         <MainColumn
           viewKey={session.viewKey}
           money={scene.money}
+          crystals={scene.crystals}
           remoteUrl={session.remoteUrl}
           actionError={actionError}
           fit={activeView === 'map'}
           fill={activeView === 'designer'}
           nextMiner={scene.nextMiner}
           nextFighter={scene.nextFighter}
+          nextBays={scene.nextBays}
+          nextDefense={scene.defense.building}
         >
           {activeView === 'map' && (
             <FitMap scene={scene} frame={session.frame} />
           )}
-          {activeView === 'mining' && !scene.mining.automine.owned && (
+          {activeView === 'mining' && !scene.mining.moneyConverter.owned && (
             <MiningPanel
               mining={scene.mining}
               onUpgrade={upgrade => {
                 void session.client.act({ type: 'upgradeMining', upgrade }).then(result => {
                   setActionError(result.ok ? null : result.error)
-                  if (result.ok && upgrade === 'automine') setActiveView('map')
+                  if (result.ok && upgrade === 'moneyConverter') setActiveView('map')
                   session.setFrame(value => value + 1)
                 })
               }}
@@ -137,8 +156,32 @@ function App() {
           {activeView === 'enemy' && scene.mining.tractorBeam.owned && (
             <EnemyPanel
               enemy={scene.enemy}
+              corvette={scene.corvette}
               onUpgrade={upgrade => {
                 void session.client.act({ type: 'upgradeEnemy', upgrade }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUnlockCorvette={() => {
+                void session.client.act({ type: 'unlockCorvette' }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUpgradeCorvette={upgrade => {
+                void session.client.act({ type: 'upgradeCorvette', upgrade }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+            />
+          )}
+          {activeView === 'defense' && scene.mining.tractorBeam.owned && (
+            <DefensePanel
+              defense={scene.defense}
+              onUpgrade={upgrade => {
+                void session.client.act({ type: 'upgradeDefense', upgrade }).then(result => {
                   setActionError(result.ok ? null : result.error)
                   session.setFrame(value => value + 1)
                 })
@@ -148,8 +191,26 @@ function App() {
           {activeView === 'fleet' && scene.designer.owned && (
             <FleetPanel
               fleet={scene.fleet}
-              onChoose={design => {
-                void session.client.act({ type: 'chooseProduction', design }).then(result => {
+              onChoose={(design, bay) => {
+                void session.client.act({ type: 'chooseProduction', design, ...(bay === 0 ? {} : { bay }) }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUnlockBay={() => {
+                void session.client.act({ type: 'unlockBay' }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUpgrade={bay => {
+                void session.client.act({ type: 'upgradeBay', bay }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onCapacity={bay => {
+                void session.client.act({ type: 'upgradeBayCapacity', bay }).then(result => {
                   setActionError(result.ok ? null : result.error)
                   session.setFrame(value => value + 1)
                 })
@@ -172,44 +233,37 @@ function App() {
                   session.setFrame(value => value + 1)
                 })
               }}
-              onSave={() => {
-                void session.client.act({ type: 'saveDesign' }).then(result => {
-                  setActionError(result.ok ? null : result.error)
-                  session.setFrame(value => value + 1)
-                })
+              onSave={() => actDesign({ type: 'saveDesign' })}
+              onRewrite={name => actDesign({ type: 'rewriteDesign', name })}
+              onLoad={name => actDesign({ type: 'loadDesign', name })}
+              onDelete={name => {
+                void actDesign({ type: 'deleteDesign', name })
               }}
               onExport={() => {
                 downloadDesign(designFile(game.exportState().parts))
               }}
-              onReset={() => {
-                void session.client.act({ type: 'resetDesign' }).then(result => {
-                  setActionError(result.ok ? null : result.error)
-                  session.setFrame(value => value + 1)
-                })
-              }}
-              onImport={file => {
-                void file.text().then(text => {
-                  let blueprint: unknown
-                  try {
-                    blueprint = JSON.parse(text) as unknown
-                  } catch {
-                    setActionError('That file is not JSON.')
-                    return
-                  }
-                  return session.client.act({ type: 'importDesign', blueprint }).then(result => {
-                    setActionError(result.ok ? null : result.error)
-                    session.setFrame(value => value + 1)
-                  })
-                })
-              }}
+              onReset={() => actDesign({ type: 'resetDesign' })}
+              onImport={file => file.text().then(text => {
+                let blueprint: unknown
+                try {
+                  blueprint = JSON.parse(text) as unknown
+                } catch {
+                  setActionError('That file is not JSON.')
+                  return false
+                }
+                return actDesign({ type: 'importDesign', blueprint })
+              })}
             />
           )}
           {activeView === 'upgrades' && (
             <ShipUpgradesPanel
               miner={scene.miner}
               showMiner={!scene.mining.automine.owned}
+              showFighter={scene.mining.tractorBeam.owned && (scene.fighter.costs.speed !== null || scene.fighter.costs.attackRate !== null || scene.fighter.costs.health !== null || scene.fighter.costs.damage !== null)}
+              fighter={scene.fighter}
               designer={scene.designer}
               weapon={scene.weapon}
+              missileCorvetteKilled={scene.missileCorvetteKilled}
               onUnlockDesigner={() => {
                 void session.client.act({ type: 'unlockDesigner' }).then(result => {
                   setActionError(result.ok ? null : result.error)
@@ -236,6 +290,12 @@ function App() {
               }}
               onUpgrade={upgrade => {
                 void session.client.act({ type: 'upgradeMiner', upgrade }).then(result => {
+                  setActionError(result.ok ? null : result.error)
+                  session.setFrame(value => value + 1)
+                })
+              }}
+              onUpgradeFighter={upgrade => {
+                void session.client.act({ type: 'upgradeFighter', upgrade }).then(result => {
                   setActionError(result.ok ? null : result.error)
                   session.setFrame(value => value + 1)
                 })

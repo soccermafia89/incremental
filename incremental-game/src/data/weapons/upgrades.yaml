@@ -1,39 +1,65 @@
-# Weapons tab, after that weapon is bought. Cost doubles each level.
-# Laser range starts at the laser part's range. Each step adds one stock-gun of reach.
-# Energy reduction lowers the laser's draw by 1, from 4 down to free.
-# Missile damage starts at 30. Fire rate 1 waits baseMs. Each rate step shortens that wait.
+# Designed weapons. A crystal row spends crystals. A cannon's first purchase is money.
 laserRange:
-  start: 270
-  step: 90
-  max: 540
-  cost: 2000
+  crystal: true
+  levels:
+    - value: 270
+      cost: 5
+    - value: 360
+      cost: 10
+    - value: 450
+      cost: 20
+    - value: 540
 laserEnergy:
-  start: 0
-  step: 1
-  max: 4
-  cost: 2000
-# The cannon comes with the designer. Rate 1 waits baseMs. Each rate step shortens that wait.
-# Cannon damage starts at designer.weaponDamage.
+  crystal: true
+  levels:
+    - value: 0
+      cost: 5
+    - value: 1
+      cost: 10
+    - value: 2
+      cost: 20
+    - value: 3
+      cost: 40
+    - value: 4
 cannonFireRate:
-  start: 1
-  step: 1
-  max: 4
-  cost: 2000
   baseMs: 1000
+  levels:
+    - value: 1
+      cost: 2000
+    - value: 2
+      cost: 5
+      crystal: true
+    - value: 3
+      cost: 10
+      crystal: true
+    - value: 4
+      crystal: true
 cannonDamage:
-  start: 10
-  step: 10
-  max: 40
-  cost: 2000
+  levels:
+    - value: 10
+      cost: 2000
+    - value: 20
+      cost: 5
+      crystal: true
+    - value: 30
+      cost: 10
+      crystal: true
+    - value: 40
+      crystal: true
 missileFireRate:
-  start: 1
-  step: 1
-  max: 4
-  cost: 4000
-  # Milliseconds between shots of one missile at rate 1. Higher rates divide this.
   baseMs: 5000
+  crystal: true
+  levels:
+    - value: 1
+      cost: 5
+    - value: 2
+      cost: 10
+    - value: 3
+      cost: 20
+    - value: 4
 missileDamage:
-  start: 30
-  step: 10
-  max: 40
-  cost: 4000
+  crystal: true
+  levels:
+    - value: 30
+      cost: 5
+    - value: 40

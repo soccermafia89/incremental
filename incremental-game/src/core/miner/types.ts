@@ -3,7 +3,7 @@ import { UPGRADE_IDS, type UpgradeId, type UpgradeLevels } from '../../data/upgr
 
 export const SHIP_MODES = ['wait', 'engage', 'shoot', 'collect', 'back', 'hunt', 'attack'] as const
 export type ShipMode = (typeof SHIP_MODES)[number]
-export const SHIP_ROLES = ['miner', 'fighter'] as const
+export const SHIP_ROLES = ['miner', 'fighter', 'corvette', 'platform'] as const
 export type ShipRole = (typeof SHIP_ROLES)[number]
 export type Side = 'player' | 'rival'
 export const MINER_UPGRADES = UPGRADE_IDS
@@ -25,6 +25,14 @@ export interface ShipState {
   mode: ShipMode
   targetId: string | null
   fireCooldownMs: number
+  /** True once this corvette carries a missile. Other ships leave it false. */
+  missiles: boolean
+  /** Milliseconds until that missile can fire. Other ships leave it at 0. */
+  missileCooldownMs: number
+  /** The next corvette cannon shot. 0 is port, 1 is starboard. Other ships leave it at 0. */
+  cannonSide: 0 | 1
+  /** Which production bay built this fighter. Null on every other ship. A null fighter counts as bay 0. */
+  bay: number | null
   side: Side
   role: ShipRole
   health: number

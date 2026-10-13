@@ -1,21 +1,28 @@
 import type { ReactNode } from 'react'
+import { PlatformMark } from '../map/PlatformMark'
 import { ShipMark } from '../map/ShipMark'
 import { THEME } from '../sidebar/theme'
 import { ErrorBoundary, ErrorFallback } from '../ErrorBoundary'
 
+const BAY_COLORS = ['#c4b5fd', '#f0abfc', '#86efac', '#fcd34d']
+
 export function MainColumn({
   viewKey,
   money,
+  crystals,
   remoteUrl,
   actionError,
   fit,
   fill = false,
   nextMiner,
   nextFighter,
+  nextBays,
+  nextDefense,
   children,
 }: {
   viewKey: number
   money: number
+  crystals: number
   remoteUrl: string | null
   actionError: string | null
   fit: boolean
@@ -23,6 +30,9 @@ export function MainColumn({
   fill?: boolean
   nextMiner: { progress: number; cells: { x: number; y: number; color: string }[] } | null
   nextFighter: { progress: number; cells: { x: number; y: number; color: string }[] } | null
+  nextBays: { index: number; progress: number; cells: { x: number; y: number; color: string }[] }[]
+  /** 0 to 1 while a defense platform is building. Null until capacity is owned. */
+  nextDefense: number | null
   children: ReactNode
 }) {
   return (
@@ -49,6 +59,8 @@ export function MainColumn({
       >
         <span style={{ color: '#e7e5e4', fontWeight: 600 }}>Money</span>
         <span data-money={money} style={{ color: '#93c5fd' }}>${money}</span>
+        <span style={{ color: '#e7e5e4', fontWeight: 600 }}>Crystals</span>
+        <span data-crystals={crystals} style={{ color: '#c4b5fd' }}>{crystals}</span>
       </div>
       <ErrorBoundary
         label="Main"
@@ -102,6 +114,10 @@ export function MainColumn({
       }}>
         {nextMiner && <LaunchBar marker="miner" progress={nextMiner.progress} color="#e2e8f0" cells={nextMiner.cells} />}
         {nextFighter && <LaunchBar marker="fighter" progress={nextFighter.progress} color="#38bdf8" cells={nextFighter.cells} />}
+        {nextBays.map(bay => (
+          <LaunchBar key={bay.index} marker="bay" bay={bay.index} progress={bay.progress} color={BAY_COLORS[(bay.index - 1) % BAY_COLORS.length]} cells={bay.cells} />
+        ))}
+        {nextDefense !== null && <DefenseBar progress={nextDefense} />}
         {(remoteUrl || actionError) && (
           <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
             {remoteUrl && <span>Server: {remoteUrl.replace(/^https?:\/\//, '')}</span>}
@@ -117,20 +133,24 @@ export function MainColumn({
 
 function LaunchBar({
   marker,
+  bay,
   progress,
   color,
   cells,
 }: {
-  marker: 'miner' | 'fighter'
+  marker: 'miner' | 'fighter' | 'bay'
+  bay?: number
   progress: number
   color: string
   cells: { x: number; y: number; color: string }[]
 }) {
   const filled = `${Math.round(progress * 100)}%`
+  const mark = marker === 'miner' ? 'miner' : 'fighter'
   return (
     <div
       data-miner-launch={marker === 'miner' ? true : undefined}
       data-fighter-launch={marker === 'fighter' ? true : undefined}
+      data-bay-launch={marker === 'bay' ? bay : undefined}
       style={{
         position: 'relative',
         width: 180,
@@ -143,6 +163,7 @@ function LaunchBar({
       <div
         data-miner-launch-progress={marker === 'miner' ? progress : undefined}
         data-fighter-launch-progress={marker === 'fighter' ? progress : undefined}
+        data-bay-launch-progress={marker === 'bay' ? progress : undefined}
         style={{
           position: 'absolute',
           left: 0,
@@ -160,7 +181,41 @@ function LaunchBar({
         display: 'flex',
         alignItems: 'center',
       }}>
-        {cells.length > 0 ? <HullIcon cells={cells} /> : <ShipMark role={marker} color={color} marker={marker} />}
+        {cells.length > 0 ? <HullIcon cells={cells} /> : <ShipMark role={mark} color={color} marker={mark} />}
+      </div>
+    </div>
+  )
+}
+
+function DefenseBar({ progress }: { progress: number }) {
+  const filled = `${Math.round(progress * 100)}%`
+  return (
+    <div
+      data-defense-launch=""
+      style={{
+        position: 'relative',
+        width: 180,
+        height: 28,
+        backgroundColor: '#27272a',
+        borderRadius: 6,
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        data-defense-launch-progress={progress}
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: filled,
+          backgroundColor: '#1e3a5f',
+        }}
+      />
+      <div style={{ position: 'absolute', left: 18, top: 14, width: 0, height: 0 }}>
+        <div style={{ position: 'absolute', transform: 'scale(0.45)' }}>
+          <PlatformMark />
+        </div>
       </div>
     </div>
   )

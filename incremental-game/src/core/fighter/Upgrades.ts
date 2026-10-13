@@ -1,14 +1,16 @@
 import type { GameConfig } from '../../data/GameConfig'
 import type { FighterLevels, FighterUpgradeId } from '../../data/fighter/upgrades'
 import { FIGHTER_UPGRADE_IDS, blankFighterLevels } from '../../data/fighter/upgrades'
-import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
+import { upgradeCrystal, upgradeMaxed, upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 
-/** Seconds to build one fighter before any production purchase. */
-const BASE_BUILD_SECONDS = 60
+/** Seconds to build one fighter before the production multiplier. The table scales that rate. */
+const BASE_BUILD_SECONDS = 25
 
 export interface FighterStats {
   values: FighterLevels
   costs: Record<FighterUpgradeId, number | null>
+  /** The next fighter-count purchase is paid in crystals. */
+  countCrystals: boolean
 }
 
 /** Purchases that change only our fighter. */
@@ -36,29 +38,23 @@ export class FighterUpgrades {
     return upgradeValue(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
-  /** Units per second. The starting rate finishes one fighter in 60 seconds. Each purchase makes the build take 70% as long. */
+  /** Units per second. The table's value multiplies the base rate. */
   private productionRate(config: GameConfig): number {
-    const start = config.fighterUpgrades.production.start
-    const perSecond = config.fighter.units / BASE_BUILD_SECONDS
-    return perSecond * start * (10 / 7) ** this.purchased.production
+    const rating = upgradeValue(config.fighterUpgrades.production, this.purchased.production)
+    return config.fighter.units / BASE_BUILD_SECONDS * rating
   }
 
   price(upgrade: FighterUpgradeId, config: GameConfig): number {
-    if (upgrade === 'count') return this.countPrice(config)
     return upgradePrice(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
-  /** The first fighter is free. The next costs `cost`, then the price doubles. */
-  private countPrice(config: GameConfig): number {
-    const level = this.purchased.count
-    if (level === 0) return 0
-    return config.fighterUpgrades.count.cost * 2 ** (level - 1)
+  /** True when the next count purchase is one of the crystal rows. */
+  countPaysCrystals(config: GameConfig): boolean {
+    return upgradeCrystal(config.fighterUpgrades.count, this.purchased.count) && !this.maxed('count', config)
   }
 
   maxed(upgrade: FighterUpgradeId, config: GameConfig): boolean {
-    const spec = config.fighterUpgrades[upgrade]
-    if (upgrade === 'production') return this.purchased.production >= (spec.max - spec.start) / spec.step
-    return this.value(upgrade, config) >= spec.max
+    return upgradeMaxed(config.fighterUpgrades[upgrade], this.purchased[upgrade])
   }
 
   upgrade(upgrade: FighterUpgradeId): void {
@@ -72,13 +68,13 @@ export class FighterUpgrades {
       values[id] = this.value(id, config)
       costs[id] = this.maxed(id, config) ? null : this.price(id, config)
     }
-    return { values, costs }
+    return { values, costs, countCrystals: this.countPaysCrystals(config) }
   }
 
-  /** Rating 10, the start, is the yaml ship speed. */
+  /** The first speed row is full ship speed. */
   speed(config: GameConfig): number {
     const rating = this.value('speed', config)
-    return config.ships.speed * (rating / config.fighterUpgrades.speed.start)
+    return config.ships.speed * (rating / upgradeValue(config.fighterUpgrades.speed, 0))
   }
 
   travel(dtMs: number, config: GameConfig): number {
@@ -87,7 +83,7 @@ export class FighterUpgrades {
 
   interval(config: GameConfig): number {
     const rate = this.value('attackRate', config)
-    const start = config.fighterUpgrades.attackRate.start
+    const start = upgradeValue(config.fighterUpgrades.attackRate, 0)
     return Math.round(config.ships.shotIntervalMs * start / rate)
   }
 

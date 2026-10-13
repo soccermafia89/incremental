@@ -1,5 +1,5 @@
 import type { GameConfig } from '../../data/GameConfig'
-import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
+import { upgradeMaxed, upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 import { UPGRADE_IDS, blankLevels, type UpgradeLevels } from '../../data/upgrades'
 import type { MinerStats, MinerUpgradeId, ShipState } from './types'
 
@@ -31,7 +31,7 @@ export class MinerUpgrades {
   }
 
   maxed(upgrade: MinerUpgradeId, config: GameConfig): boolean {
-    return this.value(upgrade, config) >= config.upgrades[upgrade].max
+    return upgradeMaxed(config.upgrades[upgrade], this.purchased[upgrade])
   }
 
   upgrade(upgrade: MinerUpgradeId): void {
@@ -54,7 +54,7 @@ export class MinerUpgrades {
       return config.ships.speed * answered
     }
     const rating = this.value('speed', config)
-    return config.ships.speed * (rating / config.upgrades.speed.start)
+    return config.ships.speed * (rating / upgradeValue(config.upgrades.speed, 0))
   }
 
   intervalOf(ship: ShipState, config: GameConfig, rivalBoosted: boolean): number {
@@ -63,13 +63,13 @@ export class MinerUpgrades {
       return rivalBoosted ? Math.round(interval / config.golden.rivalFire) : interval
     }
     const rate = this.value('fireRate', config)
-    return Math.round(config.ships.shotIntervalMs * config.upgrades.fireRate.start / rate)
+    return Math.round(config.ships.shotIntervalMs * upgradeValue(config.upgrades.fireRate, 0) / rate)
   }
 
   capacityOf(ship: ShipState, config: GameConfig, rivalBoosted: boolean): number {
     if (ship.role === 'fighter') return 0
     if (ship.side !== 'player') {
-      const base = rivalBoosted ? config.golden.rivalCarry : config.upgrades.carry.start
+      const base = rivalBoosted ? config.golden.rivalCarry : upgradeValue(config.upgrades.carry, 0)
       const answered = this.value('carry', config) >= config.rival.carryAt ? config.rival.carryBy : 1
       return base * answered
     }
@@ -77,7 +77,7 @@ export class MinerUpgrades {
   }
 
   damageOf(ship: ShipState, config: GameConfig, rivalBoosted: boolean): number {
-    if (ship.side !== 'player') return rivalBoosted ? config.golden.rivalDamage : config.upgrades.damage.start
+    if (ship.side !== 'player') return rivalBoosted ? config.golden.rivalDamage : upgradeValue(config.upgrades.damage, 0)
     return this.value('damage', config)
   }
 

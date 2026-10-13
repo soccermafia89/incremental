@@ -1,6 +1,6 @@
 import type { GameConfig } from '../../data/GameConfig'
 import { MINING_IDS, blankMiningLevels, type MiningId, type MiningLevels } from '../../data/mining'
-import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
+import { upgradeMaxed, upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 
 export interface MiningStats {
   values: MiningLevels
@@ -8,7 +8,8 @@ export interface MiningStats {
   golden: { owned: boolean; cost: number | null }
   tractorBeam: { owned: boolean; cost: number | null }
   unlock: { owned: boolean; cost: number | null }
-  automine: { owned: boolean; cost: number | null; perSecond: number }
+  automine: { owned: boolean; cost: number | null; payout: number; everyMs: number }
+  moneyConverter: { owned: boolean; cost: number | null }
 }
 
 /** Player purchases that change the shared asteroid field. */
@@ -18,21 +19,37 @@ export class MiningUpgrades {
   private golden: boolean
   private unlocked: boolean
   private automine: boolean
+  private moneyConverter: boolean
 
-  private constructor(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean, automine: boolean) {
+  private constructor(
+    purchased: MiningLevels,
+    beam: boolean,
+    golden: boolean,
+    unlocked: boolean,
+    automine: boolean,
+    moneyConverter: boolean,
+  ) {
     this.purchased = purchased
     this.beam = beam
     this.golden = golden
     this.unlocked = unlocked
     this.automine = automine
+    this.moneyConverter = moneyConverter
   }
 
   static create(): MiningUpgrades {
-    return new MiningUpgrades(blankMiningLevels(), false, false, false, false)
+    return new MiningUpgrades(blankMiningLevels(), false, false, false, false, false)
   }
 
-  static restore(purchased: MiningLevels, beam: boolean, golden: boolean, unlocked: boolean, automine: boolean): MiningUpgrades {
-    return new MiningUpgrades({ ...purchased }, beam, golden, unlocked, automine)
+  static restore(
+    purchased: MiningLevels,
+    beam: boolean,
+    golden: boolean,
+    unlocked: boolean,
+    automine: boolean,
+    moneyConverter: boolean,
+  ): MiningUpgrades {
+    return new MiningUpgrades({ ...purchased }, beam, golden, unlocked, automine, moneyConverter)
   }
 
   levels(): MiningLevels {
@@ -48,7 +65,7 @@ export class MiningUpgrades {
   }
 
   maxed(upgrade: MiningId, config: GameConfig): boolean {
-    return this.value(upgrade, config) >= config.mining[upgrade].max
+    return upgradeMaxed(config.mining[upgrade], this.purchased[upgrade])
   }
 
   upgrade(upgrade: MiningId): void {
@@ -80,7 +97,12 @@ export class MiningUpgrades {
       automine: {
         owned: this.automine,
         cost: this.automine ? null : config.mining.automine.cost,
-        perSecond: config.mining.automine.perSecond,
+        payout: config.mining.automine.payout,
+        everyMs: config.mining.automine.everyMs,
+      },
+      moneyConverter: {
+        owned: this.moneyConverter,
+        cost: this.moneyConverter ? null : config.mining.moneyConverter.cost,
       },
     }
   }
@@ -100,7 +122,7 @@ export class MiningUpgrades {
   /** Milliseconds between golden asteroids. Rate 1 is the yaml interval. */
   goldenInterval(config: GameConfig): number {
     const rate = this.value('goldenSpawnRate', config)
-    return Math.round(config.golden.spawnMs * config.mining.goldenSpawnRate.start / rate)
+    return Math.round(config.golden.spawnMs * upgradeValue(config.mining.goldenSpawnRate, 0) / rate)
   }
 
   hasUnlock(): boolean {
@@ -123,13 +145,25 @@ export class MiningUpgrades {
     return config.mining.automine.cost
   }
 
-  /** Dollars earned each second once automine is owned. */
-  automineIncome(config: GameConfig): number {
-    return config.mining.automine.perSecond
+  /** Dollars paid in one lump each time the automine clock fills. */
+  autominePayout(config: GameConfig): number {
+    return config.mining.automine.payout
   }
 
   ownAutomine(): void {
     this.automine = true
+  }
+
+  hasMoneyConverter(): boolean {
+    return this.moneyConverter
+  }
+
+  moneyConverterPrice(config: GameConfig): number {
+    return config.mining.moneyConverter.cost
+  }
+
+  ownMoneyConverter(): void {
+    this.moneyConverter = true
   }
 
   hasTractor(): boolean {
@@ -166,12 +200,12 @@ export class MiningUpgrades {
 
   /** How many size upgrades have been bought. Drawing grows by sizeStep each one. */
   private grown(config: GameConfig): number {
-    return this.loot(config) - config.mining.size.start
+    return this.loot(config) - upgradeValue(config.mining.size, 0)
   }
 
   /** Milliseconds between asteroid spawns. Rate 1 is the yaml interval. */
   spawnInterval(config: GameConfig): number {
     const rate = this.value('spawnRate', config)
-    return Math.round(config.asteroids.spawnMs * config.mining.spawnRate.start / rate)
+    return Math.round(config.asteroids.spawnMs * upgradeValue(config.mining.spawnRate, 0) / rate)
   }
 }

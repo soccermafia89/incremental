@@ -12,7 +12,8 @@ export const TRACTOR_BEAM = 'tractorBeam' as const
 export const GOLDEN = 'golden' as const
 export const MINING_UNLOCK = 'unlock' as const
 export const AUTOMINE = 'automine' as const
-export type MiningPurchase = MiningId | typeof TRACTOR_BEAM | typeof GOLDEN | typeof MINING_UNLOCK | typeof AUTOMINE
+export const MONEY_CONVERTER = 'moneyConverter' as const
+export type MiningPurchase = MiningId | typeof TRACTOR_BEAM | typeof GOLDEN | typeof MINING_UNLOCK | typeof AUTOMINE | typeof MONEY_CONVERTER
 
 export const MINING_FIELDS = {
   size: 'miningSizeLevel',
@@ -26,7 +27,8 @@ export type MiningTable = Record<MiningId, UpgradeSpec> & {
   golden: { cost: number }
   tractorBeam: { cost: number }
   unlock: { cost: number }
-  automine: { cost: number; perSecond: number }
+  automine: { cost: number; payout: number; everyMs: number }
+  moneyConverter: { cost: number; above: number }
 }
 
 const costField = { cost: { integer: true, min: 1 } }
@@ -39,9 +41,14 @@ export function parseMining(raw: unknown): MiningTable {
     golden: read<{ cost: number }>(row.golden, 'mining.golden', costField),
     tractorBeam: read<{ cost: number }>(row.tractorBeam, 'mining.tractorBeam', costField),
     unlock: read<{ cost: number }>(row.unlock, 'mining.unlock', costField),
-    automine: read<{ cost: number; perSecond: number }>(row.automine, 'mining.automine', {
+    automine: read<{ cost: number; payout: number; everyMs: number }>(row.automine, 'mining.automine', {
       cost: { integer: true, min: 1 },
-      perSecond: { integer: true, min: 1 },
+      payout: { integer: true, min: 1 },
+      everyMs: { integer: true, min: 1 },
+    }),
+    moneyConverter: read<{ cost: number; above: number }>(row.moneyConverter, 'mining.moneyConverter', {
+      cost: { integer: true, min: 1 },
+      above: { integer: true, min: 0 },
     }),
   }
 }

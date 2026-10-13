@@ -36,6 +36,24 @@ export function MiningPanel({
       </div>
     )
   }
+  if (mining.automine.owned) {
+    return (
+      <div data-mining-upgrades style={{ color: 'white', width: 420 }}>
+        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Mining</h2>
+        <button
+          type="button"
+          data-upgrade="moneyConverter"
+          onClick={() => onUpgrade('moneyConverter')}
+          style={cardStyle}
+        >
+          <div style={{ fontSize: 16, fontWeight: 'bold' }}>Money converter</div>
+          <div style={{ marginTop: 6, color: '#93c5fd' }}>
+            {mining.moneyConverter.cost === null ? 'On' : `Off · $${mining.moneyConverter.cost}`}
+          </div>
+        </button>
+      </div>
+    )
+  }
   return (
     <div data-mining-upgrades style={{ color: 'white', width: 420 }}>
       <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Mining</h2>
@@ -113,7 +131,7 @@ export function MiningPanel({
           >
             <div style={{ fontSize: 16, fontWeight: 'bold' }}>Automine</div>
             <div style={{ marginTop: 6, color: '#93c5fd' }}>
-              ${mining.automine.perSecond}/s · ${mining.automine.cost}
+              ${mining.automine.payout} every {mining.automine.everyMs / 1000}s · ${mining.automine.cost}
             </div>
           </button>
         </div>

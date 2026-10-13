@@ -1,33 +1,92 @@
+# Each list is the upgrade, one row per level. `value` is that level.
+# `cost` is the price of the next purchase. The last row is the maximum.
 speed:
-  start: 10
-  step: 2
-  max: 30
-  cost: 1
+  - value: 10
+    cost: 1
+  - value: 12
+    cost: 2
+  - value: 14
+    cost: 4
+  - value: 16
+    cost: 8
+  - value: 18
+    cost: 16
+  - value: 20
+    cost: 32
+  - value: 22
+    cost: 64
+  - value: 24
+    cost: 128
+  - value: 26
+    cost: 256
+  - value: 28
+    cost: 512
+  - value: 30
 damage:
-  start: 1
-  step: 1
-  max: 10
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 2
+  - value: 3
+    cost: 5
+  - value: 4
+    cost: 10
+  - value: 5
+    cost: 30
+  - value: 6
+    cost: 80
+  - value: 7
+    cost: 200
+  - value: 8
+    cost: 500
+  - value: 9
+    cost: 1000
+  - value: 10
 fireRate:
-  start: 1
-  step: 1
-  max: 5
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 10
+  - value: 3
+    cost: 50
+  - value: 4
+    cost: 200
+  - value: 5
 carry:
-  start: 1
-  step: 1
-  max: 5
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 2
+  - value: 3
+    cost: 4
+  - value: 4
+    cost: 8
+  - value: 5
 # How many miners are kept. Starts at 1 for the miner already at the base.
-# Each purchase adds one. A destroyed miner is built again until that number is full.
 count:
-  start: 1
-  step: 1
-  max: 5
-  cost: 5
+  - value: 1
+    cost: 5
+  - value: 2
+    cost: 10
+  - value: 3
+    cost: 20
+  - value: 4
+    cost: 40
+  - value: 5
 # Units built each second on the miner bar.
 production:
-  start: 1
-  step: 1
-  max: 8
-  cost: 1
+  - value: 1
+    cost: 1
+  - value: 2
+    cost: 2
+  - value: 3
+    cost: 4
+  - value: 4
+    cost: 8
+  - value: 5
+    cost: 16
+  - value: 6
+    cost: 32
+  - value: 7
+    cost: 64
+  - value: 8

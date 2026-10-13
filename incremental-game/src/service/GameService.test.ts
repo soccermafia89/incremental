@@ -31,6 +31,7 @@ describe('GameService', () => {
         { type: 'upgradesToShipDesign' },
         { type: 'skipLevelOne' },
         { type: 'claimGift' },
+        { type: 'claimCrystalGift' },
       ],
     })
     expect(service.act({ type: 'upgradeEnemy', upgrade: 'spawnRate' })).toMatchObject({ ok: false, reason: 'unknown-action' })
@@ -51,9 +52,10 @@ describe('GameService', () => {
     expect(service.act({ type: 'anything' })).toMatchObject({ ok: false, reason: 'unknown-action' })
   })
 
-  it('retires miner and mining actions once automine is bought', () => {
+  it('retires miner actions at automine and offers the money converter', () => {
     const service = new GameService()
     service.newGame()
+    service.act({ type: 'claimGift' })
     service.act({ type: 'claimGift' })
     service.act({ type: 'claimGift' })
     expect(service.act({ type: 'upgradeMining', upgrade: 'automine' })).toMatchObject({ ok: false, reason: 'unknown-action' })
@@ -71,14 +73,19 @@ describe('GameService', () => {
     const after = service.options()
     expect(after.ok).toBe(true)
     if (!after.ok) return
-    expect(after.data.some(action => action.type === 'upgradeMiner' || action.type === 'upgradeMining')).toBe(false)
+    expect(after.data.filter(action => action.type === 'upgradeMining')).toEqual([
+      { type: 'upgradeMining', upgrade: 'moneyConverter' },
+    ])
+    expect(after.data.some(action => action.type === 'upgradeMiner')).toBe(false)
     expect(service.act({ type: 'upgradeMiner', upgrade: 'speed' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    expect(service.act({ type: 'upgradeMining', upgrade: 'size' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    expect(service.act({ type: 'upgradeMining', upgrade: 'moneyConverter' })).toMatchObject({ ok: false, reason: 'cant-afford' })
     const game = service.getGame()
     expect(game?.exportState().asteroids).toEqual([])
     expect(game?.exportState().ships.filter(ship => ship.side === 'player')).toEqual([])
     const before = game?.scene().money ?? 0
-    service.advance(1_000)
-    expect(service.getGame()?.scene().money).toBe(before + 200)
+    service.advance(5_000)
+    expect(service.getGame()?.scene().money).toBe(before + 800)
   })
 
   it('copies the designer grid into the game', () => {
@@ -87,16 +94,21 @@ describe('GameService', () => {
     expect(service.act({ type: 'saveDesign' })).toMatchObject({ ok: false, reason: 'unknown-action' })
     expect(service.act({ type: 'unlockEngine', engine: 'mediumEngine' })).toMatchObject({ ok: false, reason: 'unknown-action' })
     service.act({ type: 'claimGift' })
+    service.act({ type: 'claimGift' })
+    service.act({ type: 'claimGift' })
     expect(service.act({ type: 'unlockDesigner' })).toMatchObject({ ok: true })
     const offered = service.options()
     expect(offered.ok).toBe(true)
     if (!offered.ok) return
     expect(offered.data).toContainEqual({ type: 'saveDesign' })
     expect(offered.data).toContainEqual({ type: 'chooseProduction', design: 'fighter' })
+    expect(offered.data).toContainEqual({ type: 'upgradeBay', bay: 0 })
+    expect(offered.data).toContainEqual({ type: 'unlockBay' })
+    expect(offered.data).not.toContainEqual({ type: 'chooseProduction', design: 'fighter', bay: 1 })
     expect(offered.data).not.toContainEqual({ type: 'chooseProduction', design: 'saved' })
     expect(offered.data).not.toContainEqual({ type: 'unlockDesigner' })
     expect(offered.data).toContainEqual({ type: 'unlockWeapon', weapon: 'laser' })
-    expect(offered.data).toContainEqual({ type: 'unlockWeapon', weapon: 'missile' })
+    expect(offered.data).not.toContainEqual({ type: 'unlockWeapon', weapon: 'missile' })
     expect(offered.data).toContainEqual({ type: 'unlockEngine', engine: 'mediumEngine' })
     expect(offered.data).toContainEqual({ type: 'unlockEngine', engine: 'largeEngine' })
     expect(offered.data).toContainEqual({ type: 'upgradeWeapon', upgrade: 'cannonFireRate' })
@@ -106,16 +118,26 @@ describe('GameService', () => {
     expect(service.act({ type: 'placeComponent', component: 'mediumEngine', x: 0, y: 1, rotation: 0 })).toMatchObject({ ok: false, reason: 'unknown-action' })
     expect(service.act({ type: 'unlockWeapon', weapon: 'laser' })).toMatchObject({ ok: true })
     expect(service.act({ type: 'placeComponent', component: 'structural', x: 1, y: 0, rotation: 0 })).toMatchObject({ ok: true })
+    expect(service.act({ type: 'saveDesign' })).toMatchObject({
+      ok: false,
+      error: 'The ship does not have enough energy.',
+      reason: 'energy',
+    })
+    expect(service.act({ type: 'removeComponent', id: 'part-1' })).toMatchObject({ ok: true })
+    expect(service.act({ type: 'placeComponent', component: 'energy', x: 1, y: 0, rotation: 0 })).toMatchObject({ ok: true })
     expect(service.act({ type: 'saveDesign' })).toMatchObject({ ok: true })
     const game = service.getGame()
     expect(game?.exportState().savedDesign).toEqual(game?.exportState().parts)
-    expect(service.act({ type: 'chooseProduction', design: 'saved' })).toMatchObject({ ok: true })
-    expect(game?.exportState().productionDesign).toBe('saved')
+    expect(service.act({ type: 'chooseProduction', design: 'ship1' })).toMatchObject({ ok: true })
+    expect(game?.exportState().bays[0].design).toBe('ship1')
+    expect(service.act({ type: 'chooseProduction', design: 'ship1', bay: 1 })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    expect(service.act({ type: 'unlockBay' })).toMatchObject({ ok: false, error: 'Not enough crystals', reason: 'cant-afford' })
     const producing = service.options()
     expect(producing.ok).toBe(true)
     if (!producing.ok) return
-    expect(producing.data).toContainEqual({ type: 'chooseProduction', design: 'saved' })
-    expect(service.act({ type: 'removeComponent', id: 'part-1' })).toMatchObject({ ok: true })
+    expect(producing.data).toContainEqual({ type: 'chooseProduction', design: 'ship1' })
+    expect(producing.data).toContainEqual({ type: 'loadDesign', name: 'ship1' })
+    expect(service.act({ type: 'removeComponent', id: 'part-2' })).toMatchObject({ ok: true })
     expect(game?.exportState().parts).toEqual([])
     expect(game?.exportState().savedDesign).toHaveLength(1)
     expect(service.act({
@@ -128,15 +150,24 @@ describe('GameService', () => {
     expect(service.act({ type: 'resetDesign' })).toMatchObject({ ok: true })
     expect(game?.exportState().parts).toEqual([])
     expect(game?.exportState().savedDesign).toHaveLength(1)
+    expect(service.act({ type: 'loadDesign', name: 'ship1' })).toMatchObject({ ok: true })
+    expect(game?.exportState().parts).toHaveLength(1)
+    expect(service.act({ type: 'loadDesign', name: 'ship9' })).toMatchObject({ ok: false, reason: 'unknown-action' })
+    expect(service.act({ type: 'resetDesign' })).toMatchObject({ ok: true })
     expect(service.act({ type: 'placeComponent', component: 'laser', x: 0, y: -1, rotation: 0 })).toMatchObject({ ok: true })
-    expect(game?.exportState().parts).toEqual([{ id: 'part-5', component: 'laser', x: 0, y: -1, rotation: 0 }])
+    expect(game?.exportState().parts).toEqual([{ id: 'part-3', component: 'laser', x: 0, y: -1, rotation: 0 }])
     const afterLaser = service.options()
     expect(afterLaser.ok).toBe(true)
     if (!afterLaser.ok) return
     expect(afterLaser.data).not.toContainEqual({ type: 'unlockWeapon', weapon: 'laser' })
-    expect(afterLaser.data).toContainEqual({ type: 'unlockWeapon', weapon: 'missile' })
+    expect(afterLaser.data).not.toContainEqual({ type: 'unlockWeapon', weapon: 'missile' })
     expect(afterLaser.data).toContainEqual({ type: 'upgradeWeapon', upgrade: 'laserRange' })
     expect(afterLaser.data).toContainEqual({ type: 'upgradeWeapon', upgrade: 'laserEnergy' })
+    expect(service.act({ type: 'upgradeWeapon', upgrade: 'laserRange' })).toMatchObject({
+      ok: false,
+      error: 'Not enough crystals',
+      reason: 'cant-afford',
+    })
     expect(afterLaser.data.some(action => action.upgrade === 'missileDamage')).toBe(false)
   })
 

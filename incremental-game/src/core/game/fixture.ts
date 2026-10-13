@@ -1,4 +1,10 @@
 import type { GameConfig } from '../../data/GameConfig'
+import { doublingTable, linearTable, powerTable, type UpgradeSpec } from '../../data/upgradeSpec'
+
+/** Marks every row of a fixture table as a crystal purchase. */
+function crystal(spec: UpgradeSpec): UpgradeSpec {
+  return { ...spec, levels: spec.levels.map(level => ({ ...level, crystal: true })) }
+}
 
 export const config: GameConfig = {
   map: {
@@ -27,51 +33,115 @@ export const config: GameConfig = {
     rivalDamage: 2,
     rivalCarry: 2,
   },
-  ships: { speed: 90, shotIntervalMs: 400, weaponRange: 150, shotSpeed: 280, units: 60, radius: 8, health: 20 },
+  ships: { speed: 90, shotIntervalMs: 400, weaponRange: 150, minerRange: 150, shotSpeed: 280, units: 60, radius: 8, health: 20 },
   fighter: { cost: 0, units: 60, bounty: 100 },
   fighterUpgrades: {
-    speed: { start: 10, step: 2, max: 30, cost: 1 },
-    attackRate: { start: 1, step: 1, max: 5, cost: 1 },
-    health: { start: 20, step: 10, max: 60, cost: 1 },
-    damage: { start: 1, step: 1, max: 10, cost: 1 },
-    count: { start: 0, step: 1, max: 5, cost: 1 },
-    production: { start: 1, step: 1, max: 8, cost: 1 },
+    speed: linearTable(10, 2, 30, 1),
+    attackRate: linearTable(1, 1, 5, 1),
+    health: linearTable(20, 10, 60, 1),
+    damage: linearTable(1, 1, 10, 1),
+    count: {
+      levels: [
+        { value: 0, cost: 0 },
+        { value: 1, cost: 1 },
+        { value: 2, cost: 2 },
+        { value: 3, cost: 4 },
+        { value: 4, cost: 8 },
+        { value: 5, cost: 1, crystal: true },
+        { value: 8, cost: 2, crystal: true },
+        { value: 11, cost: 4, crystal: true },
+        { value: 14 },
+      ],
+    },
+    production: powerTable(9, 10 / 7, 1),
   },
   enemyUpgrades: {
-    spawnRate: { start: 1, step: 1, max: 128, cost: 1, bounty: 1 },
-    capacity: { start: 10, step: 5, max: 30, cost: 1, bounty: 1.3 },
-    health: { start: 20, step: 10, max: 60, cost: 1, bounty: 1.3 },
-    damage: { start: 8, step: 1, max: 16, cost: 1, bounty: 1.3 },
-    attackRate: { start: 1, step: 1, max: 4, cost: 1, bounty: 1.3 },
+    spawnRate: doublingTable(1, 128, 1, 1),
+    capacity: {
+      bounty: 1.3,
+      levels: [
+        { value: 1, cost: 1 },
+        { value: 10, cost: 2 },
+        { value: 15, cost: 4 },
+        { value: 20, cost: 8 },
+        { value: 25, cost: 16 },
+        { value: 30 },
+      ],
+    },
+    health: linearTable(20, 10, 60, 1, 1.3),
+    damage: linearTable(8, 1, 16, 1, 1.3),
+    attackRate: linearTable(1, 1, 4, 1, 1.3),
+  },
+  corvette: { cost: 1, bounty: 500, crystal: 1, spawnMs: 60_000, shotMs: 3_000, speedScale: 1.3, rangeScale: 1.5, missileDamage: 100 },
+  corvetteUpgrades: {
+    health: crystal(linearTable(200, 40, 400, 1)),
+    damage: crystal(linearTable(12, 4, 32, 1)),
+    attackRate: crystal(linearTable(1, 1, 3, 1)),
+    speed: crystal({
+      levels: [
+        { value: 1, cost: 1 },
+        { value: 1.5, cost: 2 },
+        { value: 2 },
+      ],
+    }),
+    spawnRate: crystal(doublingTable(1, 8, 1)),
+    capacity: crystal(linearTable(0, 1, 4, 1)),
+    missiles: crystal(linearTable(0, 1, 1, 1)),
+  },
+  defense: { buildMs: 60_000, rangeScale: 3, shotMs: 2_000, speed: 8 },
+  defenseUpgrades: {
+    capacity: linearTable(0, 1, 1, 1),
+    health: crystal(linearTable(2_000, 1_000, 5_000, 1)),
+    attackRate: crystal(linearTable(1, 1, 4, 1)),
+    damage: crystal(linearTable(120, 60, 300, 1)),
   },
   rival: { shipsAt: 3, shipsBy: 2, speedAt: 8, speedBy: 1.5, carryAt: 4, carryBy: 2, replenishMs: 60_000 },
   ore: { value: 1, speed: 0 },
   cannon: { wake: 150, range: 300, rate: 9, damage: 1000, shotSpeed: 20000 },
-  bank: { startingMoney: 0, gift: 10_000 },
+  bank: { startingMoney: 0, gift: 20, giftNext: 10_000, crystalGift: 10_000 },
   upgrades: {
-    speed: { start: 10, step: 2, max: 100, cost: 1 },
-    damage: { start: 8, step: 1, max: 100, cost: 1 },
-    fireRate: { start: 1, step: 1, max: 20, cost: 1 },
-    carry: { start: 1, step: 1, max: 20, cost: 1 },
-    count: { start: 1, step: 1, max: 20, cost: 5 },
-    production: { start: 1, step: 1, max: 8, cost: 1 },
+    speed: linearTable(10, 2, 100, 1),
+    damage: linearTable(8, 1, 100, 1),
+    fireRate: linearTable(1, 1, 20, 1),
+    carry: linearTable(1, 1, 20, 1),
+    count: linearTable(1, 1, 20, 5),
+    production: linearTable(1, 1, 8, 1),
   },
   mining: {
-    size: { start: 1, step: 1, max: 3, cost: 1 },
-    spawnRate: { start: 1, step: 1, max: 5, cost: 1 },
-    goldenSpawnRate: { start: 1, step: 1, max: 5, cost: 1 },
+    size: linearTable(1, 1, 3, 1),
+    spawnRate: linearTable(1, 1, 5, 1),
+    goldenSpawnRate: linearTable(1, 1, 5, 1),
     golden: { cost: 50 },
     tractorBeam: { cost: 500 },
     unlock: { cost: 10 },
-    automine: { cost: 10_000, perSecond: 200 },
+    automine: { cost: 10_000, payout: 800, everyMs: 5_000 },
+    moneyConverter: { cost: 100_000, above: 100_000 },
   },
   designer: {
     cost: 2_000,
     half: 10,
     weaponDamage: 10,
+    bays: [20],
+    bayProduction: {
+      scale: 0.6,
+      bonus: 1.5,
+      levels: [
+        { value: 0, cost: 2000 },
+        { value: 1, cost: 4000 },
+        { value: 2 },
+      ],
+    },
+    bayCapacity: {
+      levels: [
+        { value: 1, cost: 1 },
+        { value: 2, cost: 2 },
+        { value: 3, cost: 4 },
+        { value: 4 },
+      ],
+    },
     weapons: {
       laser: { cost: 4_000 },
-      missile: { cost: 12_000 },
+      missile: { crystal: 1 },
     },
     engines: {
       mediumEngine: { cost: 5_000 },
@@ -85,7 +155,7 @@ export const config: GameConfig = {
         weight: 1,
         thrust: 0,
         energy: -1,
-        health: 20,
+        health: 10,
         range: 0,
         color: '#94a3b8',
         cells: [{ x: 0, y: 0 }],
@@ -98,11 +168,11 @@ export const config: GameConfig = {
       },
       armor: {
         label: 'Armor',
-        units: 120,
-        weight: 8,
+        units: 200,
+        weight: 10,
         thrust: 0,
-        energy: -4,
-        health: 200,
+        energy: 0,
+        health: 300,
         range: 0,
         color: '#818cf8',
         cells: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 1 }],
@@ -270,12 +340,27 @@ export const config: GameConfig = {
     },
   },
   weaponUpgrades: {
-    laserRange: { start: 270, step: 90, max: 540, cost: 2000 },
-    laserEnergy: { start: 0, step: 1, max: 4, cost: 2000 },
-    cannonFireRate: { start: 1, step: 1, max: 4, cost: 2000, baseMs: 1000 },
-    cannonDamage: { start: 10, step: 10, max: 40, cost: 2000 },
-    missileFireRate: { start: 1, step: 1, max: 4, cost: 4000, baseMs: 5000 },
-    missileDamage: { start: 30, step: 10, max: 40, cost: 4000 },
+    laserRange: crystal(linearTable(270, 90, 540, 5)),
+    laserEnergy: crystal(linearTable(0, 1, 4, 5)),
+    cannonFireRate: {
+      baseMs: 1000,
+      levels: [
+        { value: 1, cost: 2000 },
+        { value: 2, cost: 5, crystal: true },
+        { value: 3, cost: 10, crystal: true },
+        { value: 4, crystal: true },
+      ],
+    },
+    cannonDamage: {
+      levels: [
+        { value: 10, cost: 2000 },
+        { value: 20, cost: 5, crystal: true },
+        { value: 30, cost: 10, crystal: true },
+        { value: 40, crystal: true },
+      ],
+    },
+    missileFireRate: { ...crystal(linearTable(1, 1, 4, 5)), baseMs: 5000 },
+    missileDamage: crystal(linearTable(30, 10, 40, 5)),
   },
 }
 
@@ -291,6 +376,11 @@ export function tuned(over: {
   upgrades?: GameConfig['upgrades']
   mining?: GameConfig['mining']
   enemyUpgrades?: GameConfig['enemyUpgrades']
+  corvette?: Partial<GameConfig['corvette']>
+  corvetteUpgrades?: GameConfig['corvetteUpgrades']
+  defense?: Partial<GameConfig['defense']>
+  defenseUpgrades?: GameConfig['defenseUpgrades']
+  designer?: GameConfig['designer']
 } = {}): GameConfig {
   return {
     map: config.map,
@@ -300,13 +390,17 @@ export function tuned(over: {
     fighter: { ...config.fighter, ...over.fighter },
     fighterUpgrades: config.fighterUpgrades,
     enemyUpgrades: over.enemyUpgrades ?? config.enemyUpgrades,
+    corvette: { ...config.corvette, ...over.corvette },
+    corvetteUpgrades: over.corvetteUpgrades ?? config.corvetteUpgrades,
+    defense: { ...config.defense, ...over.defense },
+    defenseUpgrades: over.defenseUpgrades ?? config.defenseUpgrades,
     rival: { ...config.rival, ...over.rival },
     ore: { ...config.ore, ...over.ore },
     cannon: { ...config.cannon, ...over.cannon },
     bank: { ...config.bank, ...over.bank },
     upgrades: over.upgrades ?? config.upgrades,
     mining: over.mining ?? config.mining,
-    designer: config.designer,
+    designer: over.designer ?? config.designer,
     weaponUpgrades: config.weaponUpgrades,
   }
 }

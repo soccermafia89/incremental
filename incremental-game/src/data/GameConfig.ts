@@ -9,6 +9,14 @@ import fighterUpgradesYaml from './fighter/upgrades.yaml?raw'
 import { parseFighterUpgrades, type FighterUpgradeTable } from './fighter/upgrades'
 import enemyUpgradesYaml from './enemy/upgrades.yaml?raw'
 import { parseEnemyUpgrades, type EnemyUpgradeTable } from './enemy/upgrades'
+import corvetteYaml from './corvette/corvette.yaml?raw'
+import { parseCorvette, type CorvetteConfig } from './corvette'
+import corvetteUpgradesYaml from './corvette/upgrades.yaml?raw'
+import { parseCorvetteUpgrades, type CorvetteUpgradeTable } from './corvette/upgrades'
+import defenseYaml from './defense/defense.yaml?raw'
+import { parseDefense, type DefenseConfig } from './defense'
+import defenseUpgradesYaml from './defense/upgrades.yaml?raw'
+import { parseDefenseUpgrades, type DefenseUpgradeTable } from './defense/upgrades'
 import goldenYaml from './golden/golden.yaml?raw'
 import { parseGolden, type GoldenConfig } from './golden'
 import mapYaml from './map/map.yaml?raw'
@@ -39,6 +47,10 @@ export interface GameConfig {
   fighter: FighterConfig
   fighterUpgrades: FighterUpgradeTable
   enemyUpgrades: EnemyUpgradeTable
+  corvette: CorvetteConfig
+  corvetteUpgrades: CorvetteUpgradeTable
+  defense: DefenseConfig
+  defenseUpgrades: DefenseUpgradeTable
   rival: RivalConfig
   ore: OreConfig
   cannon: CannonConfig
@@ -61,6 +73,10 @@ export function loadGameConfig(): GameConfig {
     fighter: load(fighterYaml, parseFighter),
     fighterUpgrades: load(fighterUpgradesYaml, parseFighterUpgrades),
     enemyUpgrades: load(enemyUpgradesYaml, parseEnemyUpgrades),
+    corvette: load(corvetteYaml, parseCorvette),
+    corvetteUpgrades: load(corvetteUpgradesYaml, parseCorvetteUpgrades),
+    defense: load(defenseYaml, parseDefense),
+    defenseUpgrades: load(defenseUpgradesYaml, parseDefenseUpgrades),
     rival: load(rivalYaml, parseRival),
     ore: load(oreYaml, parseOre),
     cannon: load(cannonYaml, parseCannon),

@@ -1,0 +1,73 @@
+# Enemy corvette. Every purchase spends crystals. The last row is the maximum.
+health:
+  crystal: true
+  levels:
+    - value: 600
+      cost: 5
+    - value: 720
+      cost: 10
+    - value: 840
+      cost: 20
+    - value: 960
+      cost: 40
+    - value: 1080
+      cost: 80
+    - value: 1200
+damage:
+  crystal: true
+  levels:
+    - value: 24
+      cost: 5
+    - value: 32
+      cost: 10
+    - value: 40
+      cost: 20
+    - value: 48
+      cost: 40
+    - value: 56
+      cost: 80
+    - value: 64
+attackRate:
+  crystal: true
+  levels:
+    - value: 1
+      cost: 5
+    - value: 2
+      cost: 10
+    - value: 3
+speed:
+  crystal: true
+  levels:
+    - value: 1
+      cost: 5
+    - value: 1.5
+      cost: 10
+    - value: 2
+spawnRate:
+  crystal: true
+  levels:
+    - value: 1
+      cost: 5
+    - value: 2
+      cost: 10
+    - value: 4
+      cost: 20
+    - value: 8
+capacity:
+  crystal: true
+  levels:
+    - value: 0
+      cost: 5
+    - value: 1
+      cost: 10
+    - value: 2
+      cost: 20
+    - value: 3
+      cost: 40
+    - value: 4
+missiles:
+  crystal: true
+  levels:
+    - value: 0
+      cost: 5
+    - value: 1

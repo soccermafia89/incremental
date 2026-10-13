@@ -1,8 +1,10 @@
 import { GameImpl, type Game } from '../core/game/Game'
 import { MINER_UPGRADES, type MinerUpgradeId } from '../core/miner'
+import { CORVETTE_UPGRADE_IDS, type CorvetteUpgradeId } from '../data/corvette/upgrades'
+import { DEFENSE_UPGRADE_IDS, type DefenseUpgradeId } from '../data/defense/upgrades'
 import { ENEMY_UPGRADE_IDS, type EnemyUpgradeId } from '../data/enemy/upgrades'
 import { FIGHTER_UPGRADE_IDS, type FighterUpgradeId } from '../data/fighter/upgrades'
-import { AUTOMINE, GOLDEN, MINING_IDS, MINING_UNLOCK, TRACTOR_BEAM, type MiningPurchase } from '../data/mining'
+import { AUTOMINE, GOLDEN, MINING_IDS, MINING_UNLOCK, MONEY_CONVERTER, TRACTOR_BEAM, type MiningPurchase } from '../data/mining'
 import { isEngineUnlock, isWeaponUnlock } from '../data/designer'
 import { WEAPON_UPGRADE_IDS, type WeaponUpgradeId } from '../data/weapons/upgrades'
 import type { GameSnapshot } from '../core/persistence/GameSnapshot'
@@ -20,6 +22,14 @@ function isMinerUpgrade(value: unknown): value is MinerUpgradeId {
 
 function isEnemyUpgrade(value: unknown): value is EnemyUpgradeId {
   return typeof value === 'string' && (ENEMY_UPGRADE_IDS as readonly string[]).includes(value)
+}
+
+function isDefenseUpgrade(value: unknown): value is DefenseUpgradeId {
+  return typeof value === 'string' && (DEFENSE_UPGRADE_IDS as readonly string[]).includes(value)
+}
+
+function isCorvetteUpgrade(value: unknown): value is CorvetteUpgradeId {
+  return typeof value === 'string' && (CORVETTE_UPGRADE_IDS as readonly string[]).includes(value)
 }
 
 function weaponStatReady(
@@ -44,7 +54,7 @@ function whole(value: unknown): value is number {
 }
 
 function isMiningPurchase(value: unknown): value is MiningPurchase {
-  return value === TRACTOR_BEAM || value === GOLDEN || value === MINING_UNLOCK || value === AUTOMINE
+  return value === TRACTOR_BEAM || value === GOLDEN || value === MINING_UNLOCK || value === AUTOMINE || value === MONEY_CONVERTER
     || (typeof value === 'string' && (MINING_IDS as readonly string[]).includes(value))
 }
 
@@ -93,18 +103,20 @@ export class GameService {
   options(): ServiceResult<GameAction[]> {
     if (!this.game) return { ok: false, error: 'No game running', reason: 'no-game' }
     const state = this.game.exportState()
-    const mining = state.automine
+    const mining = state.moneyConverter
       ? []
-      : state.miningUnlocked
-        ? [
-          ...MINING_IDS
-            .filter(upgrade => state.golden || upgrade !== 'goldenSpawnRate')
-            .map(upgrade => ({ type: 'upgradeMining', upgrade })),
-          { type: 'upgradeMining', upgrade: GOLDEN },
-          { type: 'upgradeMining', upgrade: TRACTOR_BEAM },
-          ...(state.tractorBeam ? [{ type: 'upgradeMining', upgrade: AUTOMINE }] : []),
-        ]
-        : [{ type: 'upgradeMining', upgrade: MINING_UNLOCK }]
+      : state.automine
+        ? [{ type: 'upgradeMining' as const, upgrade: MONEY_CONVERTER }]
+        : state.miningUnlocked
+          ? [
+            ...MINING_IDS
+              .filter(upgrade => state.golden || upgrade !== 'goldenSpawnRate')
+              .map(upgrade => ({ type: 'upgradeMining' as const, upgrade })),
+            { type: 'upgradeMining' as const, upgrade: GOLDEN },
+            { type: 'upgradeMining' as const, upgrade: TRACTOR_BEAM },
+            ...(state.tractorBeam ? [{ type: 'upgradeMining' as const, upgrade: AUTOMINE }] : []),
+          ]
+          : [{ type: 'upgradeMining' as const, upgrade: MINING_UNLOCK }]
     const miners = state.automine
       ? []
       : MINER_UPGRADES.map(upgrade => ({ type: 'upgradeMiner', upgrade }))
@@ -114,7 +126,26 @@ export class GameService {
     const enemy = state.tractorBeam
       ? ENEMY_UPGRADE_IDS.map(upgrade => ({ type: 'upgradeEnemy', upgrade }))
       : []
-    const designer = state.shipDesigner ? [{ type: 'saveDesign' }] : [{ type: 'unlockDesigner' }]
+    const corvette = state.tractorBeam
+      ? state.corvette
+        ? CORVETTE_UPGRADE_IDS.map(upgrade => ({ type: 'upgradeCorvette', upgrade }))
+        : [{ type: 'unlockCorvette' }]
+      : []
+    const defense = state.tractorBeam
+      ? state.defenseLevels.capacity >= 1
+        ? DEFENSE_UPGRADE_IDS.map(upgrade => ({ type: 'upgradeDefense', upgrade }))
+        : [{ type: 'upgradeDefense', upgrade: 'capacity' }]
+      : []
+    const designer = state.shipDesigner
+      ? [
+          { type: 'saveDesign' },
+          ...state.designs.flatMap(design => [
+            { type: 'loadDesign', name: design.name },
+            { type: 'rewriteDesign', name: design.name },
+            { type: 'deleteDesign', name: design.name },
+          ]),
+        ]
+      : [{ type: 'unlockDesigner' }]
     const engines = state.shipDesigner
       ? (['mediumEngine', 'largeEngine'] as const)
           .filter(engine => !state[engine])
@@ -122,18 +153,34 @@ export class GameService {
       : []
     const weapons = state.shipDesigner
       ? (['laser', 'missile'] as const)
-          .filter(weapon => !state[weapon])
-          .map(weapon => ({ type: 'unlockWeapon', weapon }))
+          .filter(weapon => !state[weapon] && (weapon !== 'missile' || state.missileCorvetteKilled))
+          .map(weapon => ({ type: 'unlockWeapon' as const, weapon }))
       : []
     const weaponStats = state.shipDesigner
       ? WEAPON_UPGRADE_IDS
           .filter(upgrade => weaponStatReady(upgrade, state))
           .map(upgrade => ({ type: 'upgradeWeapon', upgrade }))
       : []
+    const ownedBays = state.bays.slice(1)
+    const fleetScene = this.game.scene().fleet
+    const nextBay = fleetScene.bays.some(bay => !bay.owned)
     const fleet = state.shipDesigner
       ? [
           { type: 'chooseProduction', design: 'fighter' },
-          ...(state.savedDesign ? [{ type: 'chooseProduction', design: 'saved' }] : []),
+          ...state.designs.map(design => ({ type: 'chooseProduction', design: design.name })),
+          ...(fleetScene.productionCost !== null ? [{ type: 'upgradeBay', bay: 0 }] : []),
+          ...(fleetScene.capacityCost !== null ? [{ type: 'upgradeBayCapacity', bay: 0 }] : []),
+          ...ownedBays.flatMap((_, offset) => {
+            const bay = offset + 1
+            const extra = fleetScene.bays.find(item => item.index === bay)
+            return [
+              { type: 'chooseProduction', design: 'fighter', bay },
+              ...state.designs.map(design => ({ type: 'chooseProduction', design: design.name, bay })),
+              ...(extra?.productionCost !== null && extra?.productionCost !== undefined ? [{ type: 'upgradeBay', bay }] : []),
+              ...(extra?.capacityCost !== null && extra?.capacityCost !== undefined ? [{ type: 'upgradeBayCapacity', bay }] : []),
+            ]
+          }),
+          ...(nextBay ? [{ type: 'unlockBay' }] : []),
         ]
       : []
     return {
@@ -143,6 +190,8 @@ export class GameService {
         ...mining,
         ...fighter,
         ...enemy,
+        ...corvette,
+        ...defense,
         ...designer,
         ...engines,
         ...weapons,
@@ -151,6 +200,7 @@ export class GameService {
         { type: 'upgradesToShipDesign' },
         { type: 'skipLevelOne' },
         { type: 'claimGift' },
+        { type: 'claimCrystalGift' },
       ],
     }
   }
@@ -169,7 +219,11 @@ export class GameService {
       return { ok: false, error: 'Already at max', reason: 'maxed' }
     }
     if (upgraded === 'broke') {
-      return { ok: false, error: 'Not enough money', reason: 'cant-afford' }
+      return {
+        ok: false,
+        error: spendsCrystals(action, this.game.scene()) ? 'Not enough crystals' : 'Not enough money',
+        reason: 'cant-afford',
+      }
     }
     if (upgraded !== 'ok') {
       return { ok: false, error: designError(upgraded), reason: upgraded }
@@ -182,6 +236,10 @@ export class GameService {
     if (!this.game) return 'unknown'
     if (action.type === 'claimGift') {
       this.game.claimGift()
+      return 'ok'
+    }
+    if (action.type === 'claimCrystalGift') {
+      this.game.claimCrystalGift()
       return 'ok'
     }
     if (action.type === 'upgradesToShipDesign') {
@@ -200,12 +258,28 @@ export class GameService {
       if (!this.game.exportState().tractorBeam) return 'unknown'
       return this.game.upgradeEnemy(action.upgrade)
     }
+    if (action.type === 'unlockCorvette') {
+      if (!this.game.exportState().tractorBeam) return 'unknown'
+      return this.game.unlockCorvette()
+    }
+    if (action.type === 'upgradeCorvette' && isCorvetteUpgrade(action.upgrade)) {
+      if (!this.game.exportState().tractorBeam || !this.game.exportState().corvette) return 'unknown'
+      return this.game.upgradeCorvette(action.upgrade)
+    }
+    if (action.type === 'upgradeDefense' && isDefenseUpgrade(action.upgrade)) {
+      return this.game.upgradeDefense(action.upgrade)
+    }
     if (action.type === 'upgradeFighter') {
       if (!this.game.exportState().tractorBeam) return 'unknown'
       if (!isFighterUpgrade(action.upgrade)) return 'unknown'
       return this.game.upgradeFighterStat(action.upgrade)
     }
     if (action.type === 'upgradeMining' && isMiningPurchase(action.upgrade)) {
+      if (this.game.exportState().moneyConverter) return 'unknown'
+      if (action.upgrade === MONEY_CONVERTER) {
+        if (!this.game.exportState().automine) return 'unknown'
+        return this.game.upgradeMining(action.upgrade)
+      }
       if (this.game.exportState().automine) return 'unknown'
       if (action.upgrade !== MINING_UNLOCK && !this.game.exportState().miningUnlocked) return 'unknown'
       if (action.upgrade === 'goldenSpawnRate' && !this.game.exportState().golden) return 'unknown'
@@ -229,6 +303,18 @@ export class GameService {
       if (!this.game.exportState().shipDesigner) return 'unknown'
       return this.game.saveDesign()
     }
+    if (action.type === 'loadDesign') {
+      if (!this.game.exportState().shipDesigner || typeof action.name !== 'string') return 'unknown'
+      return this.game.loadDesign(action.name)
+    }
+    if (action.type === 'rewriteDesign') {
+      if (!this.game.exportState().shipDesigner || typeof action.name !== 'string') return 'unknown'
+      return this.game.rewriteDesign(action.name)
+    }
+    if (action.type === 'deleteDesign') {
+      if (!this.game.exportState().shipDesigner || typeof action.name !== 'string') return 'unknown'
+      return this.game.deleteDesign(action.name)
+    }
     if (action.type === 'resetDesign') {
       if (!this.game.exportState().shipDesigner) return 'unknown'
       return this.game.resetDesign()
@@ -240,7 +326,22 @@ export class GameService {
     if (action.type === 'chooseProduction') {
       if (!this.game.exportState().shipDesigner) return 'unknown'
       if (typeof action.design !== 'string') return 'unknown'
-      return this.game.chooseProduction(action.design)
+      if (action.bay !== undefined && (!whole(action.bay) || action.bay < 0)) return 'unknown'
+      return this.game.chooseProduction(action.design, action.bay)
+    }
+    if (action.type === 'unlockBay') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      return this.game.unlockBay()
+    }
+    if (action.type === 'upgradeBay') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      if (!whole(action.bay) || action.bay < 0) return 'unknown'
+      return this.game.upgradeBay(action.bay)
+    }
+    if (action.type === 'upgradeBayCapacity') {
+      if (!this.game.exportState().shipDesigner) return 'unknown'
+      if (!whole(action.bay) || action.bay < 0) return 'unknown'
+      return this.game.upgradeBayCapacity(action.bay)
     }
     if (action.type === 'placeComponent') {
       if (!this.game.exportState().shipDesigner) return 'unknown'
@@ -302,4 +403,19 @@ export class GameService {
       data: { you: claimed.playerId, token: claimed.token, revision: this.revision },
     }
   }
+}
+
+function spendsCrystals(action: GameAction, scene: {
+  weapon: { crystals: Record<WeaponUpgradeId, boolean> }
+  fighter: { countCrystals: boolean }
+  defense: { crystals: Record<string, boolean> }
+  corvette: { crystals: Record<string, boolean> }
+}): boolean {
+  if (action.type === 'unlockBay') return true
+  if (action.type === 'unlockWeapon' && action.weapon === 'missile') return true
+  if (action.type === 'upgradeDefense' && action.upgrade !== undefined) return scene.defense.crystals[action.upgrade] === true
+  if (action.type === 'upgradeCorvette' && action.upgrade !== undefined) return scene.corvette.crystals[action.upgrade] === true
+  if (action.type === 'upgradeFighter' && action.upgrade === 'count') return scene.fighter.countCrystals
+  if (action.type === 'upgradeBayCapacity' && action.bay === 0) return scene.fighter.countCrystals
+  return action.type === 'upgradeWeapon' && isWeaponUpgrade(action.upgrade) && scene.weapon.crystals[action.upgrade]
 }

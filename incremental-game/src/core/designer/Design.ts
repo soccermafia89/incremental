@@ -2,7 +2,8 @@ import type { GameConfig } from '../../data/GameConfig'
 import type { HullCell } from '../miner/types'
 import { COMPONENT_IDS, ENGINE_UNLOCK_IDS, GUN_IDS, WEAPON_UNLOCK_IDS, isComponentId, isEngineUnlock, isGunId, isWeaponUnlock, type ComponentId, type EngineUnlockId, type GridCell, type GunId, type WeaponUnlockId } from '../../data/designer'
 import { cellKey, connected, CORE_ID, occupy, touches, worldCells, worldMounts } from './geometry'
-import { isRotation, type DesignGhost, type DesignResult, type DesignStats, type DesignerCell, type DesignerScene, type PlacedPart, type Rotation, type WeaponMods } from './types'
+import { DesignLibrary } from './Library'
+import { isRotation, type DesignGhost, type DesignResult, type DesignStats, type DesignerCell, type DesignerScene, type NamedDesign, type PlacedPart, type Rotation, type WeaponMods } from './types'
 
 const EMPTY = '#0f172a'
 const CORE_COLOR = '#e2e8f0'
@@ -15,8 +16,8 @@ export class ShipDesign {
   private mediumEngine: boolean
   private largeEngine: boolean
   private parts: PlacedPart[]
-  /** The layout the rest of the game uses. The grid can change after this is copied. */
-  private saved: PlacedPart[] | null
+  /** Named ships. The last one is the layout the rest of the game uses. */
+  private library: DesignLibrary
   private nextId: number
 
   private constructor(
@@ -26,7 +27,7 @@ export class ShipDesign {
     mediumEngine: boolean,
     largeEngine: boolean,
     parts: PlacedPart[],
-    saved: PlacedPart[] | null,
+    library: DesignLibrary,
     nextId: number,
   ) {
     this.unlocked = unlocked
@@ -35,12 +36,12 @@ export class ShipDesign {
     this.mediumEngine = mediumEngine
     this.largeEngine = largeEngine
     this.parts = parts
-    this.saved = saved
+    this.library = library
     this.nextId = nextId
   }
 
   static create(): ShipDesign {
-    return new ShipDesign(false, false, false, false, false, [], null, 1)
+    return new ShipDesign(false, false, false, false, false, [], DesignLibrary.empty(), 1)
   }
 
   /** Replays the grid and the design the game uses. Throws when either layout could not have been built. */
@@ -54,8 +55,9 @@ export class ShipDesign {
     parts: PlacedPart[],
     nextPartId: number,
     savedDesign: PlacedPart[] | null,
+    designs: NamedDesign[],
   ): ShipDesign {
-    const design = new ShipDesign(unlocked, laser, missile, mediumEngine, largeEngine, [], null, 1)
+    const design = new ShipDesign(unlocked, laser, missile, mediumEngine, largeEngine, [], DesignLibrary.empty(), 1)
     if (!unlocked && parts.length > 0) throw new Error('parts require the ship designer')
     for (const part of parts) {
       const result = design.place(config, part.component, part.x, part.y, part.rotation, part.id)
@@ -63,11 +65,11 @@ export class ShipDesign {
     }
     if (nextPartId < design.nextId) throw new Error('nextPartId is already used')
     design.nextId = nextPartId
-    if (savedDesign !== null) {
-      if (!unlocked) throw new Error('saved design requires the ship designer')
-      ShipDesign.replay(config, savedDesign, laser, missile, mediumEngine, largeEngine)
-      design.saved = savedDesign.map(part => ({ ...part }))
-    }
+    if (savedDesign !== null && !unlocked) throw new Error('saved design requires the ship designer')
+    if (savedDesign !== null) ShipDesign.replay(config, savedDesign, laser, missile, mediumEngine, largeEngine)
+    design.library = DesignLibrary.accept(designs, savedDesign, parts => {
+      ShipDesign.replay(config, parts, laser, missile, mediumEngine, largeEngine)
+    })
     return design
   }
 
@@ -105,29 +107,57 @@ export class ShipDesign {
   }
 
   hasSaved(): boolean {
-    return this.saved !== null
+    return this.library.savedParts() !== null
   }
 
   /** Speed in px/s, one shot's damage, each powered gun, and the colored squares, from the copied ship. Null before Save design. */
   combat(config: GameConfig, mods: WeaponMods = stockMods(config)): { speed: number; damage: number; fires: DesignStats['fires']; weapons: { kind: GunId; range: number; splash: boolean }[]; health: number; cells: { x: number; y: number; color: string }[] } | null {
-    if (this.saved === null) return null
-    const stats = this.stats(config, this.saved, mods)
+    const saved = this.library.savedParts()
+    if (saved === null) return null
+    return this.combatParts(config, saved, mods)
+  }
+
+  /** One named save, such as ship1. Null when that name was never saved. */
+  namedParts(name: string): PlacedPart[] | null {
+    return this.library.partsOf(name)
+  }
+
+  /** Build cost and shape of one named save. */
+  layoutOf(config: GameConfig, name: string): { units: number; cells: DesignerCell[] } | null {
+    const parts = this.library.partsOf(name)
+    if (!parts) return null
+    return {
+      units: parts.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
+      cells: this.painted(config, parts),
+    }
+  }
+
+  /** The same combat numbers as `combat`, for one named save. */
+  combatNamed(config: GameConfig, name: string, mods: WeaponMods = stockMods(config)): { speed: number; damage: number; fires: DesignStats['fires']; weapons: { kind: GunId; range: number; splash: boolean }[]; health: number; cells: { x: number; y: number; color: string }[] } | null {
+    const parts = this.library.partsOf(name)
+    if (!parts) return null
+    return this.combatParts(config, parts, mods)
+  }
+
+  private combatParts(config: GameConfig, parts: PlacedPart[], mods: WeaponMods): { speed: number; damage: number; fires: DesignStats['fires']; weapons: { kind: GunId; range: number; splash: boolean }[]; health: number; cells: { x: number; y: number; color: string }[] } {
+    const stats = this.stats(config, parts, mods)
     return {
       speed: stats.speed * config.ships.speed,
       damage: stats.damage,
       fires: stats.fires,
-      weapons: poweredGuns(config, this.saved, mods).map(gun => ({ kind: gun.kind, range: gun.range, splash: gun.splash })),
-      cells: this.painted(config, this.saved).map(cell => ({ x: cell.x, y: cell.y, color: cell.color })),
+      weapons: poweredGuns(config, parts, mods).map(gun => ({ kind: gun.kind, range: gun.range, splash: gun.splash })),
+      cells: this.painted(config, parts).map(cell => ({ x: cell.x, y: cell.y, color: cell.color })),
       health: stats.health,
     }
   }
 
   /** The copied ship: its build cost and the cells that make its shape. */
   savedShape(config: GameConfig): { units: number; cells: DesignerCell[] } | null {
-    if (this.saved === null) return null
+    const saved = this.library.savedParts()
+    if (saved === null) return null
     return {
-      units: this.saved.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
-      cells: this.painted(config, this.saved),
+      units: saved.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
+      cells: this.painted(config, saved),
     }
   }
 
@@ -143,7 +173,7 @@ export class ShipDesign {
     if (!this.unlocked) return 'unknown'
     let laid: ShipDesign
     try {
-      laid = ShipDesign.restore(config, true, this.laser, this.missile, this.mediumEngine, this.largeEngine, parts, nextPartNumber(parts), null)
+      laid = ShipDesign.restore(config, true, this.laser, this.missile, this.mediumEngine, this.largeEngine, parts, nextPartNumber(parts), null, [])
     } catch {
       return 'layout'
     }
@@ -153,11 +183,33 @@ export class ShipDesign {
     return 'ok'
   }
 
-  /** Copies the current grid. Later edits stay on the grid until this runs again. */
-  commit(): DesignResult {
+  /** Copies the current grid as the next ship. Later edits stay on the grid until this runs again. */
+  commit(config: GameConfig, mods: WeaponMods = stockMods(config)): DesignResult {
     if (!this.unlocked) return 'unknown'
-    this.saved = this.parts.map(part => ({ ...part }))
+    if (this.stats(config, this.parts, mods).energy < 0) return 'energy'
+    this.library.append(this.parts)
     return 'ok'
+  }
+
+  /** Replaces one named ship with the current grid. A negative-energy ship is refused. */
+  rewrite(config: GameConfig, name: string, mods: WeaponMods = stockMods(config)): DesignResult {
+    if (!this.unlocked) return 'unknown'
+    if (this.stats(config, this.parts, mods).energy < 0) return 'energy'
+    return this.library.rewrite(name, this.parts)
+  }
+
+  /** Removes one named ship. Later names shift down so the list stays ship1, ship2, ... */
+  discard(name: string): DesignResult {
+    if (!this.unlocked) return 'unknown'
+    return this.library.discard(name)
+  }
+
+  /** Puts one named save on the grid. The ship the fleet builds stays the latest save. */
+  load(config: GameConfig, name: string): DesignResult {
+    if (!this.unlocked) return 'unknown'
+    const found = this.library.partsOf(name)
+    if (!found) return 'unknown'
+    return this.install(config, found)
   }
 
   remove(config: GameConfig, id: string): DesignResult {
@@ -212,10 +264,11 @@ export class ShipDesign {
       cost: this.unlocked ? null : config.designer.cost,
       units: this.parts.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
       stats: this.stats(config, this.parts, mods),
-      saved: this.saved === null ? null : {
-        units: this.saved.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
-        stats: this.stats(config, this.saved, mods),
-      },
+      saved: this.savedScene(config, mods),
+      designs: this.library.entries().map(design => ({
+        name: design.name,
+        cells: this.painted(config, design.parts).map(cell => ({ x: cell.x, y: cell.y, color: cell.color })),
+      })),
       half,
       cells,
       weapons: WEAPON_UNLOCK_IDS.map(id => {
@@ -224,7 +277,8 @@ export class ShipDesign {
         return {
           id,
           label: spec.label,
-          cost: owned ? null : config.designer.weapons[id].cost,
+          cost: id === 'laser' && !owned ? config.designer.weapons.laser.cost : null,
+          crystal: id === 'missile' && !owned ? config.designer.weapons.missile.crystal : null,
           range: drawnRange(id, spec.range, mods),
           energy: drawnEnergy(id, spec.energy, mods),
           units: spec.units,
@@ -263,7 +317,7 @@ export class ShipDesign {
     }
   }
 
-  save(): { shipDesigner: boolean; laser: boolean; missile: boolean; mediumEngine: boolean; largeEngine: boolean; parts: PlacedPart[]; nextPartId: number; savedDesign: PlacedPart[] | null } {
+  save(): { shipDesigner: boolean; laser: boolean; missile: boolean; mediumEngine: boolean; largeEngine: boolean; parts: PlacedPart[]; nextPartId: number; savedDesign: PlacedPart[] | null; designs: NamedDesign[] } {
     return {
       shipDesigner: this.unlocked,
       laser: this.laser,
@@ -272,7 +326,8 @@ export class ShipDesign {
       largeEngine: this.largeEngine,
       parts: this.parts.map(part => ({ ...part })),
       nextPartId: this.nextId,
-      savedDesign: this.saved?.map(part => ({ ...part })) ?? null,
+      savedDesign: this.library.savedParts(),
+      designs: this.library.entries(),
     }
   }
 
@@ -323,7 +378,7 @@ export class ShipDesign {
 
   /** Core, stock thruster, and the miner laser. Graphics only. Miner upgrades still set the stats. */
   static minerLayout(config: GameConfig): DesignerCell[] {
-    const design = new ShipDesign(true, false, false, false, false, [], null, 1)
+    const design = new ShipDesign(true, false, false, false, false, [], DesignLibrary.empty(), 1)
     const parts: { component: ComponentId; x: number; y: number }[] = [
       { component: 'minerLaser', x: 0, y: -1 },
       { component: 'thruster', x: 0, y: 1 },
@@ -406,9 +461,18 @@ export class ShipDesign {
     return cells
   }
 
+  private savedScene(config: GameConfig, mods: WeaponMods): DesignerScene['saved'] {
+    const saved = this.library.savedParts()
+    if (saved === null) return null
+    return {
+      units: saved.reduce((sum, part) => sum + config.designer.components[part.component].units, 0),
+      stats: this.stats(config, saved, mods),
+    }
+  }
+
   /** Places a copied layout on a throwaway ship so a bad snapshot cannot load. */
   private static replay(config: GameConfig, parts: PlacedPart[], laser: boolean, missile: boolean, mediumEngine: boolean, largeEngine: boolean): void {
-    const check = new ShipDesign(true, laser, missile, mediumEngine, largeEngine, [], null, 1)
+    const check = new ShipDesign(true, laser, missile, mediumEngine, largeEngine, [], DesignLibrary.empty(), 1)
     for (const part of parts) {
       const result = check.place(config, part.component, part.x, part.y, part.rotation, part.id)
       if (result !== 'ok') throw new Error('saved design is invalid')
@@ -430,9 +494,9 @@ function stockMods(config: GameConfig): WeaponMods {
     laserRange: config.designer.components.laser.range,
     laserEnergy: config.designer.components.laser.energy,
     cannonRate: 1,
-    cannonDamage: config.weaponUpgrades.cannonDamage.start,
+    cannonDamage: config.weaponUpgrades.cannonDamage.levels[0].value,
     missileRate: 1,
-    missileDamage: config.weaponUpgrades.missileDamage.start,
+    missileDamage: config.weaponUpgrades.missileDamage.levels[0].value,
   }
 }
 
@@ -456,9 +520,11 @@ function fireInterval(config: GameConfig, kind: GunId, guns: number, mods: Weapo
   return Math.max(1, Math.round(config.ships.shotIntervalMs / guns))
 }
 
-function ratedWait(spec: { baseMs: number; start: number }, rate: number, guns: number): number {
-  if (guns <= 0 || rate <= 0) return spec.baseMs
-  return Math.max(1, Math.round(spec.baseMs * spec.start / rate / guns))
+function ratedWait(spec: { baseMs?: number; levels: { value: number }[] }, rate: number, guns: number): number {
+  const baseMs = spec.baseMs ?? 1
+  const start = spec.levels[0]?.value ?? 1
+  if (guns <= 0 || rate <= 0) return baseMs
+  return Math.max(1, Math.round(baseMs * start / rate / guns))
 }
 
 /** Guns that still have energy after the other parts have drawn. Each gun spends its own cost, in placement order. */

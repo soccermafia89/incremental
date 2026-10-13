@@ -5,6 +5,7 @@ import type { MapLayout } from '../map/Layout'
 import type { MiningUpgrades } from '../mining/Mining'
 import type { OreField } from '../ore/OreField'
 import type { FiredShot, Volley } from '../shot/Shot'
+import type { CorvetteUpgrades } from '../corvette/Upgrades'
 import type { EnemyUpgrades } from '../enemy/Upgrades'
 import type { FighterUpgrades } from '../fighter/Upgrades'
 import type { WeaponUpgrades } from '../weapons/Upgrades'
@@ -21,10 +22,14 @@ export interface MinerWorld {
   upgrades: MinerUpgrades
   fighterUpgrades: FighterUpgrades
   enemyUpgrades: EnemyUpgrades
+  corvetteUpgrades: CorvetteUpgrades
   weaponUpgrades: WeaponUpgrades
   mining: MiningUpgrades
   bank: Bank
-  /** Apply a hit now. A laser uses this instead of a traveling shot. */
+  /** Add crystals from a corvette destroyed by a ship. */
+  gainCrystal(amount: number): void
+  /** A ship destroyed a missile corvette. The base cannon does not count. */
+  noteMissileCorvette(): void
   hit(shot: FiredShot): void
   /** Draw a line from a ship to its target for this step. */
   beam(from: { x: number; y: number }, to: { x: number; y: number }, side: Side): void

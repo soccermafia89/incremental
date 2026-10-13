@@ -5,6 +5,8 @@ export interface ShipConfig {
   speed: number
   shotIntervalMs: number
   weaponRange: number
+  /** How far a friendly miner shoots and stops. Other ships use `weaponRange`. */
+  minerRange: number
   shotSpeed: number
   /** Production units spent to launch one miner. */
   units: number
@@ -19,6 +21,7 @@ export function parseShips(raw: unknown): ShipConfig {
     speed: { min: 0 },
     shotIntervalMs: { integer: true, min: 1 },
     weaponRange: { above: 0 },
+    minerRange: { above: 0 },
     shotSpeed: { min: 0 },
     units: { integer: true, min: 1 },
     radius: { min: 0 },

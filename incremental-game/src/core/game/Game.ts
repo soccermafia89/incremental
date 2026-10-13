@@ -1,5 +1,7 @@
 import type { GameConfig } from '../../data/GameConfig'
 import { loadGameConfig } from '../../data/GameConfig'
+import type { CorvetteUpgradeId } from '../../data/corvette/upgrades'
+import type { DefenseUpgradeId } from '../../data/defense/upgrades'
 import type { EnemyUpgradeId } from '../../data/enemy/upgrades'
 import type { WeaponUpgradeId } from '../../data/weapons/upgrades'
 import type { FighterUpgradeId } from '../../data/fighter/upgrades'
@@ -44,12 +46,28 @@ export class GameImpl implements Game {
     return this.map.upgradeEnemy(upgrade)
   }
 
+  unlockCorvette(): UpgradeResult {
+    return this.map.unlockCorvette()
+  }
+
+  upgradeCorvette(upgrade: CorvetteUpgradeId): UpgradeResult {
+    return this.map.upgradeCorvette(upgrade)
+  }
+
+  upgradeDefense(upgrade: DefenseUpgradeId): UpgradeResult | 'unknown' {
+    return this.map.upgradeDefense(upgrade)
+  }
+
   upgradeWeapon(upgrade: WeaponUpgradeId): UpgradeResult | 'unknown' {
     return this.map.upgradeWeapon(upgrade)
   }
 
   claimGift(): void {
     this.map.claimGift()
+  }
+
+  claimCrystalGift(): void {
+    this.map.claimCrystalGift()
   }
 
   upgradesToShipDesign(): void {
@@ -80,6 +98,18 @@ export class GameImpl implements Game {
     return this.map.saveDesign()
   }
 
+  loadDesign(name: string): DesignResult {
+    return this.map.loadDesign(name)
+  }
+
+  rewriteDesign(name: string): DesignResult {
+    return this.map.rewriteDesign(name)
+  }
+
+  deleteDesign(name: string): DesignResult {
+    return this.map.deleteDesign(name)
+  }
+
   resetDesign(): DesignResult {
     return this.map.resetDesign()
   }
@@ -94,8 +124,20 @@ export class GameImpl implements Game {
     return this.map.importDesign(parts)
   }
 
-  chooseProduction(design: string): DesignResult {
-    return this.map.chooseProduction(design)
+  chooseProduction(design: string, bay?: number): DesignResult {
+    return this.map.chooseProduction(design, bay)
+  }
+
+  unlockBay(): UpgradeResult | 'unknown' {
+    return this.map.unlockBay()
+  }
+
+  upgradeBay(bay: number): UpgradeResult | 'unknown' {
+    return this.map.upgradeBay(bay)
+  }
+
+  upgradeBayCapacity(bay: number): UpgradeResult | 'unknown' {
+    return this.map.upgradeBayCapacity(bay)
   }
 
   removeComponent(id: string): DesignResult {

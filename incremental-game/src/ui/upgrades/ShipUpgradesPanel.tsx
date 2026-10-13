@@ -1,12 +1,16 @@
 import { useState } from 'react'
 import type { DesignerScene } from '../../core/designer'
+import type { FighterStats } from '../../core/fighter/Upgrades'
 import type { MinerStats, MinerUpgradeId } from '../../core/miner'
 import type { WeaponStats } from '../../core/weapons/Upgrades'
 import type { EngineUnlockId, WeaponUnlockId } from '../../data/designer'
+import type { FighterUpgradeId } from '../../data/fighter/upgrades'
 import type { WeaponUpgradeId } from '../../data/weapons/upgrades'
 
-function offer(value: number, cost: number | null): string {
-  return cost === null ? `${value} · Max` : `${value} · $${cost}`
+function offer(value: number, cost: number | null, crystal = false): string {
+  if (cost === null) return `${value} · Max`
+  if (!crystal) return `${value} · $${cost}`
+  return `${value} · ${cost} ${cost === 1 ? 'crystal' : 'crystals'}`
 }
 
 const SECTIONS: { name?: string; rows: { id: MinerUpgradeId; label: string }[] }[] = [
@@ -32,6 +36,12 @@ const SECTIONS: { name?: string; rows: { id: MinerUpgradeId; label: string }[] }
   },
 ]
 
+const FIGHTER_ROWS: { id: FighterUpgradeId; label: string }[] = [
+  { id: 'speed', label: 'Speed' },
+  { id: 'attackRate', label: 'Attack rate' },
+  { id: 'health', label: 'Health' },
+  { id: 'damage', label: 'Damage' },
+]
 const CANNON_ROWS: { id: WeaponUpgradeId; label: string }[] = [
   { id: 'cannonFireRate', label: 'Rate of fire' },
   { id: 'cannonDamage', label: 'Damage' },
@@ -48,9 +58,13 @@ const MISSILE_ROWS: { id: WeaponUpgradeId; label: string }[] = [
 export function ShipUpgradesPanel({
   miner,
   showMiner,
+  showFighter,
+  fighter,
   designer,
   weapon,
+  missileCorvetteKilled,
   onUpgrade,
+  onUpgradeFighter,
   onUnlockDesigner,
   onUnlockWeapon,
   onUnlockEngine,
@@ -58,15 +72,19 @@ export function ShipUpgradesPanel({
 }: {
   miner: MinerStats
   showMiner: boolean
+  showFighter: boolean
+  fighter: FighterStats
   designer: DesignerScene
   weapon: WeaponStats
+  missileCorvetteKilled: boolean
   onUpgrade: (upgrade: MinerUpgradeId) => void
+  onUpgradeFighter: (upgrade: FighterUpgradeId) => void
   onUnlockDesigner: () => void
   onUnlockWeapon: (weapon: WeaponUnlockId) => void
   onUnlockEngine: (engine: EngineUnlockId) => void
   onUpgradeWeapon: (upgrade: WeaponUpgradeId) => void
 }) {
-  const [page, setPage] = useState<'miner' | 'weapons' | 'engines' | null>(null)
+  const [page, setPage] = useState<'miner' | 'fighter' | 'weapons' | 'engines' | null>(null)
 
   if (page === 'engines' && designer.owned) {
     return (
@@ -114,8 +132,8 @@ export function ShipUpgradesPanel({
               style={cardStyle}
             >
               <div style={{ fontSize: 16, fontWeight: 'bold' }}>{row.label}</div>
-              <div style={{ marginTop: 6, color: '#93c5fd' }}>
-                {offer(weapon.values[row.id], weapon.costs[row.id])}
+              <div style={{ marginTop: 6, color: weapon.crystals[row.id] ? '#c4b5fd' : '#93c5fd' }}>
+                {offer(weapon.values[row.id], weapon.costs[row.id], weapon.crystals[row.id])}
               </div>
             </button>
           ))}
@@ -128,14 +146,43 @@ export function ShipUpgradesPanel({
           onUnlock={onUnlockWeapon}
           onUpgrade={onUpgradeWeapon}
         />
-        <div style={{ height: 28 }} />
-        <WeaponBlock
-          offer={designer.weapons.find(item => item.id === 'missile')}
-          rows={MISSILE_ROWS}
-          stats={weapon}
-          onUnlock={onUnlockWeapon}
-          onUpgrade={onUpgradeWeapon}
-        />
+        {(missileCorvetteKilled || designer.weapons.find(item => item.id === 'missile')?.crystal === null) && (
+          <>
+            <div style={{ height: 28 }} />
+            <WeaponBlock
+              offer={designer.weapons.find(item => item.id === 'missile')}
+              rows={MISSILE_ROWS}
+              stats={weapon}
+              onUnlock={onUnlockWeapon}
+              onUpgrade={onUpgradeWeapon}
+            />
+          </>
+        )}
+      </div>
+    )
+  }
+
+  if (page === 'fighter' && showFighter) {
+    return (
+      <div data-ship-upgrades data-fighter-stats style={{ color: 'white', width: 420 }}>
+        <Back onClick={() => setPage(null)} />
+        <h2 style={{ margin: '0 0 16px', fontSize: 22 }}>Default fighter</h2>
+        <div data-upgrade-section="stats" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {FIGHTER_ROWS.map(row => (
+            <button
+              key={row.id}
+              type="button"
+              data-upgrade={row.id}
+              onClick={() => onUpgradeFighter(row.id)}
+              style={cardStyle}
+            >
+              <div style={{ fontSize: 16, fontWeight: 'bold' }}>{row.label}</div>
+              <div style={{ marginTop: 6, color: '#93c5fd' }}>
+                {offer(fighter.values[row.id], fighter.costs[row.id])}
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     )
   }
@@ -153,6 +200,16 @@ export function ShipUpgradesPanel({
               style={cardStyle}
             >
               <div style={{ fontSize: 16, fontWeight: 'bold' }}>Miner</div>
+            </button>
+          )}
+          {showFighter && (
+            <button
+              type="button"
+              data-upgrade="fighter"
+              onClick={() => setPage('fighter')}
+              style={cardStyle}
+            >
+              <div style={{ fontSize: 16, fontWeight: 'bold' }}>Default fighter</div>
             </button>
           )}
           <button
@@ -278,6 +335,24 @@ function WeaponBlock({
   onUpgrade: (upgrade: WeaponUpgradeId) => void
 }) {
   if (!item) return null
+  if (item.crystal !== null) {
+    return (
+      <button
+        type="button"
+        data-upgrade={item.id}
+        onClick={() => onUnlock(item.id)}
+        style={cardStyle}
+      >
+        <div style={{ fontSize: 16, fontWeight: 'bold' }}>{item.label}</div>
+        <div style={{ marginTop: 6, color: '#c4b5fd' }}>
+          Off · {item.crystal} {item.crystal === 1 ? 'crystal' : 'crystals'}
+        </div>
+        <div style={{ marginTop: 4, color: '#cbd5e1', fontSize: 13 }}>
+          {item.range} range · {item.energy} energy · {item.units} units
+        </div>
+      </button>
+    )
+  }
   if (item.cost !== null) {
     return (
       <button
@@ -306,8 +381,8 @@ function WeaponBlock({
           style={cardStyle}
         >
           <div style={{ fontSize: 16, fontWeight: 'bold' }}>{row.label}</div>
-          <div style={{ marginTop: 6, color: '#93c5fd' }}>
-            {offer(stats.values[row.id], stats.costs[row.id])}
+          <div style={{ marginTop: 6, color: stats.crystals[row.id] ? '#c4b5fd' : '#93c5fd' }}>
+            {offer(stats.values[row.id], stats.costs[row.id], stats.crystals[row.id])}
           </div>
         </button>
       ))}

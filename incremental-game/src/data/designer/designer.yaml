@@ -1,5 +1,5 @@
 # Unlock for the Ship Designer sidebar. Paid once.
-cost: 2000
+cost: 10000
 # Cells you can build out from the core, on each side. The core sits at (0, 0).
 half: 10
 # Sides of the core that a part can bolt onto. The core has weight, health, and no thrust.
@@ -9,13 +9,37 @@ half: 10
 # A built design moves at its speed times ships.speed. Each shot deals this damage.
 # Each gun type keeps its own timer. Extra guns of that type shorten its wait.
 weaponDamage: 10
+# Crystal cost of each extra production bay, in the order they unlock. The first bay is free.
+bays:
+  - 20
+# Each bay starts at `scale` of the fighter production rate.
+# Two purchases, paid in money. The price doubles. Each one multiplies that bay by `bonus`.
+bayProduction:
+  scale: 0.6
+  bonus: 1.5
+  levels:
+    - value: 0
+      cost: 2000
+    - value: 1
+      cost: 4000
+    - value: 2
+# Ships an extra bay keeps. Bay 1 uses the fighter count upgrade instead.
+bayCapacity:
+  - value: 1
+    cost: 2000
+  - value: 2
+    cost: 4000
+  - value: 3
+    cost: 8000
+  - value: 4
 # Bought on Ship Upgrades once the designer is owned. The part then joins the catalog.
 # The stock gun is free with the designer. Its range matches ships.weaponRange.
 weapons:
   laser:
     cost: 4000
   missile:
-    cost: 12000
+    # One crystal, after a ship destroys a missile corvette. A base cannon kill does not count.
+    crystal: 1
 # Bought on Ship Upgrades once the designer is owned. The stock thruster is free.
 # A bigger engine covers more cells, draws more energy, and pushes harder.
 engines:
@@ -38,7 +62,7 @@ components:
     weight: 1
     thrust: 0
     energy: -1
-    health: 20
+    health: 10
     range: 0
     color: "#94a3b8"
     cells:
@@ -50,12 +74,12 @@ components:
       - [0, 0, w]
   armor:
     label: Armor
-    # Four structural blocks are 80 health and 40 units. This slab is much tougher and costs more to build.
-    units: 120
-    weight: 8
+    # Four structural blocks are 40 health and 40 units. This slab is much tougher and costs more to build.
+    units: 200
+    weight: 10
     thrust: 0
-    energy: -4
-    health: 200
+    energy: 0
+    health: 300
     range: 0
     color: "#818cf8"
     cells:

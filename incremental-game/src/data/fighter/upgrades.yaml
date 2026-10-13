@@ -1,38 +1,89 @@
-# Fighter stats for our side. `start` is the value before any purchase. Cost doubles each level.
-# Health start matches ships.health. Speed start 10 is full ship speed, the same scale as miners.
-# Each base cost is four times the matching miner upgrade. Health uses the $1 miner base.
+# Our fighters. Each row is one level. `cost` buys the next row. The last row is the maximum.
+# Speed 10 is full ship speed. Health 20 matches ships.health.
 speed:
-  start: 10
-  step: 2
-  max: 30
-  cost: 4
+  - value: 10
+    cost: 200
+  - value: 12
+    cost: 400
+  - value: 14
+    cost: 800
+  - value: 16
+    cost: 1600
+  - value: 18
+    cost: 3200
+  - value: 20
+    cost: 6400
+  - value: 22
+    cost: 12800
+  - value: 24
+    cost: 25600
+  - value: 26
+    cost: 51200
+  - value: 28
+    cost: 102400
+  - value: 30
 attackRate:
-  start: 1
-  step: 1
-  max: 5
-  cost: 4
+  - value: 1
+    cost: 200
+  - value: 2
+    cost: 400
+  - value: 3
+    cost: 800
+  - value: 4
 health:
-  start: 20
-  step: 10
-  max: 60
-  cost: 4
+  - value: 20
+    cost: 200
+  - value: 30
+    cost: 400
+  - value: 40
+    cost: 800
+  - value: 50
+    cost: 1600
+  - value: 60
+    cost: 3200
+  - value: 70
 damage:
-  start: 10
-  step: 5
-  max: 20
-  cost: 4
-# How many fighters are kept. Starts at none. The first buy is free and builds one.
-# The next buy costs `cost`, then the price doubles. Losses are replaced.
+  - value: 10
+    cost: 200
+  - value: 15
+    cost: 400
+  - value: 20
+# Ships kept. The first buy is free. Money buys add one through 5.
+# The crystal rows add three ships each.
 count:
-  start: 0
-  step: 1
-  max: 5
-  cost: 20
-# Units built each second on the fighter bar, scaled so the starting rate still finishes
-# `fighter.units` in 60 seconds. Each purchase makes the build take 70% as long.
-# `max` is still the last rate step.
+  - value: 0
+    cost: 0
+  - value: 1
+    cost: 200
+  - value: 2
+    cost: 400
+  - value: 3
+    cost: 800
+  - value: 4
+    cost: 1600
+  - value: 5
+    cost: 5
+    crystal: true
+  - value: 8
+    cost: 10
+    crystal: true
+  - value: 11
+    cost: 20
+    crystal: true
+  - value: 14
+# Multiplier on units built per second. The base rate finishes one fighter in 25 seconds.
+# Each row is 10/7 times the previous one.
 production:
-  start: 1
-  step: 1
-  max: 8
-  cost: 4
+  - value: 1
+    cost: 200
+  - value: 1.4285714285714286
+    cost: 400
+  - value: 2.0408163265306123
+    cost: 800
+  - value: 2.915451895043732
+    cost: 1600
+  - value: 4.164931278633903
+    cost: 3200
+  - value: 5.949901826619861
+    cost: 6400
+  - value: 8.499859752314087

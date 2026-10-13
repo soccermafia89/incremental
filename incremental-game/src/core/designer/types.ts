@@ -3,7 +3,7 @@ import type { ComponentId, EngineUnlockId, GridCell, GunId, Mount, Side, WeaponU
 export const ROTATIONS = [0, 90, 180, 270] as const
 export type Rotation = (typeof ROTATIONS)[number]
 
-export type DesignResult = 'ok' | 'unknown' | 'attach' | 'overlap' | 'bounds' | 'disconnect' | 'layout'
+export type DesignResult = 'ok' | 'unknown' | 'attach' | 'overlap' | 'bounds' | 'disconnect' | 'layout' | 'energy'
 
 export interface PlacedPart {
   id: string
@@ -11,6 +11,12 @@ export interface PlacedPart {
   x: number
   y: number
   rotation: Rotation
+}
+
+/** One saved layout. Names are ship1, ship2, and so on, in the order they were saved. */
+export interface NamedDesign {
+  name: string
+  parts: PlacedPart[]
 }
 
 export interface DesignerCell {
@@ -56,10 +62,12 @@ export interface DesignerScene {
   stats: DesignStats
   /** The copy other parts of the game use. Null until Save design. */
   saved: { units: number; stats: DesignStats } | null
+  /** Every save, oldest first. Each picture is the hull the map draws. */
+  designs: { name: string; cells: { x: number; y: number; color: string }[] }[]
   half: number
   cells: DesignerCell[]
-  /** Laser and missile, sold on Ship Upgrades once the designer is owned. */
-  weapons: { id: WeaponUnlockId; label: string; cost: number | null; range: number; energy: number; units: number }[]
+  /** Laser and missile, sold on Ship Upgrades once the designer is owned. Missile costs crystals. */
+  weapons: { id: WeaponUnlockId; label: string; cost: number | null; crystal: number | null; range: number; energy: number; units: number }[]
   /** Medium and large engines, sold on Ship Upgrades once the designer is owned. */
   engines: { id: EngineUnlockId; label: string; cost: number | null; thrust: number; energy: number; units: number; cells: number }[]
   catalog: { id: ComponentId; label: string; units: number; weight: number; thrust: number; energy: number; health: number; range: number; damage: number; interval: number; color: string; cells: GridCell[] }[]
@@ -88,6 +96,7 @@ const REFUSAL: Record<Exclude<DesignResult, 'ok' | 'unknown'>, string> = {
   bounds: 'That sits outside the grid.',
   disconnect: 'That would leave part of the ship unattached.',
   layout: 'That file is not a ship design.',
+  energy: 'The ship does not have enough energy.',
 }
 
 export function designError(result: Exclude<DesignResult, 'ok' | 'unknown'>): string {

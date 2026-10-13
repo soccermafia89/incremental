@@ -110,6 +110,26 @@ describe('ship designer', () => {
     })
   })
 
+  it('saves a ship at zero energy and refuses one below zero', () => {
+    const design = open()
+    expect(design.commit(config)).toBe('ok')
+    expect(design.place(config, 'structural', 1, 0, 0)).toBe('ok')
+    expect(design.scene(config).stats.energy).toBe(config.designer.components.structural.energy)
+    expect(design.commit(config)).toBe('energy')
+    expect(design.save().designs).toHaveLength(1)
+    expect(design.place(config, 'energy', 0, 1, 0)).toBe('ok')
+    expect(design.place(config, 'thruster', 0, 3, 0)).toBe('ok')
+    expect(design.place(config, 'weapon', -1, 0, 270)).toBe('ok')
+    expect(design.place(config, 'structural', 2, 0, 0)).toBe('ok')
+    const net = ['structural', 'energy', 'thruster', 'weapon', 'structural'].reduce(
+      (sum, id) => sum + config.designer.components[id as 'structural'].energy,
+      0,
+    )
+    expect(net).toBe(0)
+    expect(design.scene(config).stats.energy).toBe(0)
+    expect(design.commit(config)).toBe('ok')
+  })
+
   it('adds structural health, and armor adds much more', () => {
     const design = open()
     expect(design.place(config, 'structural', 1, 0, 0)).toBe('ok')
@@ -122,20 +142,70 @@ describe('ship designer', () => {
   })
 
   it('keeps the copied design after the grid changes', () => {
-    expect(ShipDesign.create().commit()).toBe('unknown')
+    expect(ShipDesign.create().commit(config)).toBe('unknown')
     const design = open()
     expect(design.save().savedDesign).toBeNull()
     expect(design.place(config, 'structural', 1, 0, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.commit(config)).toBe('energy')
+    expect(design.save().savedDesign).toBeNull()
+    expect(design.place(config, 'energy', 0, 1, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     const copied = design.save().savedDesign
     const id = design.save().parts[0]?.id
     expect(id).toBeDefined()
     if (!id) return
     expect(design.remove(config, id)).toBe('ok')
-    expect(design.save().parts).toEqual([])
+    expect(design.save().parts).toEqual([{ id: 'part-2', component: 'energy', x: 0, y: 1, rotation: 0 }])
     expect(design.save().savedDesign).toEqual(copied)
-    expect(design.scene(config).units).toBe(0)
-    expect(design.scene(config).saved?.units).toBe(config.designer.components.structural.units)
+    expect(design.scene(config).units).toBe(config.designer.components.energy.units)
+    expect(design.scene(config).saved?.units).toBe(
+      config.designer.components.structural.units + config.designer.components.energy.units,
+    )
+    expect(design.save().designs).toEqual([{ name: 'ship1', parts: copied }])
+  })
+
+  it('names each save ship1, ship2, and loads one back onto the grid', () => {
+    const design = open()
+    expect(design.load(config, 'ship1')).toBe('unknown')
+    expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
+    expect(design.place(config, 'structural', -1, 0, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
+    const saved = design.save()
+    expect(saved.designs.map(item => item.name)).toEqual(['ship1', 'ship2'])
+    expect(saved.designs[0]?.parts).toHaveLength(1)
+    expect(saved.designs[1]?.parts).toHaveLength(2)
+    expect(saved.savedDesign).toEqual(saved.designs[1]?.parts)
+    expect(design.load(config, 'ship1')).toBe('ok')
+    expect(design.save().parts).toEqual(saved.designs[0]?.parts)
+    expect(design.save().savedDesign).toEqual(saved.designs[1]?.parts)
+    expect(design.scene(config).designs.map(item => item.name)).toEqual(['ship1', 'ship2'])
+    expect(design.scene(config).designs[0]?.cells.some(cell => cell.x === 1 && cell.y === 0)).toBe(true)
+    expect(design.load(config, 'ship3')).toBe('unknown')
+  })
+
+  it('rewrites one named ship and drops another, keeping ship1, ship2', () => {
+    const design = open()
+    expect(design.rewrite(config, 'ship1')).toBe('unknown')
+    expect(design.discard('ship1')).toBe('unknown')
+    expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
+    expect(design.place(config, 'structural', -1, 0, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
+    expect(design.load(config, 'ship1')).toBe('ok')
+    expect(design.place(config, 'structural', -1, 0, 0)).toBe('ok')
+    expect(design.rewrite(config, 'ship1')).toBe('ok')
+    const saved = design.save()
+    expect(saved.designs[0]?.parts).toHaveLength(2)
+    expect(saved.designs[1]?.parts).toHaveLength(2)
+    expect(saved.savedDesign).toEqual(saved.designs[1]?.parts)
+    expect(design.discard('ship1')).toBe('ok')
+    expect(design.save().designs.map(item => item.name)).toEqual(['ship1'])
+    expect(design.save().savedDesign).toEqual(design.save().designs[0]?.parts)
+    expect(design.discard('ship1')).toBe('ok')
+    expect(design.save().designs).toEqual([])
+    expect(design.save().savedDesign).toBeNull()
+    expect(design.discard('ship1')).toBe('unknown')
   })
 
   it('flies and shoots from the saved design', () => {
@@ -143,23 +213,11 @@ describe('ship designer', () => {
     expect(design.combat(config)).toBeNull()
     expect(design.place(config, 'thruster', 0, 1, 0)).toBe('ok')
     expect(design.place(config, 'weapon', 0, -1, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.commit(config)).toBe('energy')
+    expect(design.combat(config)).toBeNull()
     const weight = config.designer.core.weight + config.designer.components.thruster.weight + config.designer.components.weapon.weight
-    expect(design.combat(config)).toEqual({
-      speed: config.ships.speed * (config.designer.components.thruster.thrust / weight),
-      damage: 0,
-      fires: [],
-      weapons: [],
-      health: config.designer.core.health,
-      cells: [
-        { x: 0, y: 0, color: '#e2e8f0' },
-        { x: 0, y: 1, color: config.designer.components.thruster.color },
-        { x: 0, y: -1, color: config.designer.components.weapon.color },
-        { x: 0, y: -2, color: config.designer.components.weapon.color },
-      ],
-    })
     expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     const powered = weight + config.designer.components.energy.weight
     expect(design.combat(config)).toEqual({
       speed: config.ships.speed * (config.designer.components.thruster.thrust / powered),
@@ -186,18 +244,15 @@ describe('ship designer', () => {
     expect(design.place(config, 'weapon', 0, -1, 0)).toBe('ok')
     expect(design.place(config, 'weapon', 2, 0, 90)).toBe('ok')
     expect(design.place(config, 'weapon', 1, 2, 180)).toBe('ok')
-    expect(design.commit()).toBe('ok')
     const spare = config.designer.components.energy.energy
       + config.designer.components.thruster.energy
       + config.designer.components.structural.energy
     const powered = Math.floor(spare / -config.designer.components.weapon.energy)
     expect(powered).toBe(2)
-    expect(design.combat(config)?.fires).toEqual([
+    expect(design.scene(config).stats.energy).toBeLessThan(0)
+    expect(design.commit(config)).toBe('energy')
+    expect(design.scene(config).stats.fires).toEqual([
       { kind: 'weapon', label: config.designer.components.weapon.label, damage: config.designer.weaponDamage, interval: Math.round(config.ships.shotIntervalMs / powered), range: config.designer.components.weapon.range },
-    ])
-    expect(design.combat(config)?.weapons).toEqual([
-      { kind: 'weapon', range: config.designer.components.weapon.range, splash: false },
-      { kind: 'weapon', range: config.designer.components.weapon.range, splash: false },
     ])
   })
 
@@ -208,14 +263,15 @@ describe('ship designer', () => {
     expect(design.place(config, 'thruster', 0, 1, 0)).toBe('ok')
     expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
     expect(design.place(config, 'laser', 0, -1, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
-    expect(design.combat(config)).toMatchObject({ damage: 0, weapons: [] })
+    expect(design.commit(config)).toBe('energy')
+    expect(design.combat(config)).toBeNull()
+    expect(design.scene(config).stats.fires).toEqual([])
     const eased = { laserRange: config.designer.components.laser.range + 90, laserEnergy: -3, cannonRate: 1, cannonDamage: config.designer.weaponDamage, missileRate: 1, missileDamage: config.designer.weaponDamage }
-    expect(design.combat(config, eased)?.weapons).toEqual([
-      { kind: 'laser', range: config.designer.components.laser.range + 90, splash: false },
+    expect(design.scene(config, eased).stats.fires).toEqual([
+      { kind: 'laser', label: config.designer.components.laser.label, damage: config.designer.weaponDamage, interval: config.ships.shotIntervalMs, range: config.designer.components.laser.range + 90 },
     ])
     expect(design.place(config, 'energy', -1, 0, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     expect(design.combat(config)).toMatchObject({
       damage: config.designer.weaponDamage,
       fires: [{ kind: 'laser', label: config.designer.components.laser.label, damage: config.designer.weaponDamage, interval: config.ships.shotIntervalMs, range: config.designer.components.laser.range }],
@@ -230,9 +286,9 @@ describe('ship designer', () => {
     expect(design.place(config, 'thruster', 0, 1, 0)).toBe('ok')
     expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
     expect(design.place(config, 'missile', 0, -1, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     expect(design.combat(config)).toMatchObject({
-      damage: config.weaponUpgrades.missileDamage.start,
+      damage: config.weaponUpgrades.missileDamage.levels[0].value,
       weapons: [{ kind: 'missile', range: config.designer.components.missile.range, splash: true }],
     })
   })
@@ -241,7 +297,8 @@ describe('ship designer', () => {
     expect(ShipDesign.create().clear()).toBe('unknown')
     const design = open()
     expect(design.place(config, 'structural', 1, 0, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.place(config, 'energy', 0, 1, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     const copied = design.save().savedDesign
     expect(design.clear()).toBe('ok')
     expect(design.save().parts).toEqual([])
@@ -254,7 +311,8 @@ describe('ship designer', () => {
     expect(() => readDesignFile({ version: 2, parts: [] })).toThrow(/not supported/)
     const design = open()
     expect(design.place(config, 'thruster', 0, 1, 0)).toBe('ok')
-    expect(design.commit()).toBe('ok')
+    expect(design.place(config, 'energy', 1, 0, 0)).toBe('ok')
+    expect(design.commit(config)).toBe('ok')
     const copied = design.save().savedDesign
     expect(design.install(config, [part])).toBe('ok')
     expect(design.save().parts).toEqual([part])
@@ -267,16 +325,16 @@ describe('ship designer', () => {
   it('rejects a saved layout that could not have been built', () => {
     expect(() => ShipDesign.restore(config, false, false, false, false, false, [{
       id: 'part-1', component: 'structural', x: 1, y: 0, rotation: 0,
-    }], 2, null)).toThrow(/ship designer/)
+    }], 2, null, [])).toThrow(/ship designer/)
     expect(() => ShipDesign.restore(config, true, false, false, false, false, [{
       id: 'part-1', component: 'structural', x: 2, y: 2, rotation: 0,
-    }], 2, null)).toThrow(/invalid/)
+    }], 2, null, [])).toThrow(/invalid/)
     expect(() => ShipDesign.restore(config, false, false, false, false, false, [], 1, [{
       id: 'part-1', component: 'structural', x: 1, y: 0, rotation: 0,
-    }])).toThrow(/saved design/)
+    }], [])).toThrow(/saved design/)
     expect(() => ShipDesign.restore(config, true, false, false, false, false, [], 1, [{
       id: 'part-1', component: 'structural', x: 2, y: 2, rotation: 0,
-    }])).toThrow(/saved design is invalid/)
+    }], [])).toThrow(/saved design is invalid/)
   })
 
   it('builds the miner from a core, a thruster, and a miner laser, and will not sell that laser', () => {
@@ -301,7 +359,7 @@ describe('ship designer', () => {
       range: config.designer.components.weapon.range,
     })
     expect(catalog.find(item => item.id === 'missile')).toMatchObject({
-      damage: config.weaponUpgrades.missileDamage.start,
+      damage: config.weaponUpgrades.missileDamage.levels[0].value,
       interval: config.weaponUpgrades.missileFireRate.baseMs,
       range: config.designer.components.missile.range,
     })

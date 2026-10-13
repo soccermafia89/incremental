@@ -1,6 +1,8 @@
+import { corvetteHull } from '../corvette/hull'
 import { separateShips } from '../motion/separate'
 import { ShipDesign } from '../designer'
 import { heading, moveMiners } from './flight'
+import { platformAnchor, platformStop } from '../defense/Upgrades'
 import { claimOre, engageNearest, ensureDuty, fights, huntNearest, release, scoopCells } from './jobs'
 import { copyShip, type HullCell, type ShipRole, type ShipState, type Side } from './types'
 import type { MinerWorld } from './world'
@@ -59,8 +61,23 @@ export class Miners {
     return this.ships.filter(ship => ship.side === 'player' && ship.role === 'fighter').length
   }
 
+  /** Player fighters built by each bay. A fighter with no bay counts as the first. */
+  fighterBays(bayCount: number): number[] {
+    const counts = Array.from({ length: bayCount }, () => 0)
+    for (const ship of this.ships) {
+      if (ship.side !== 'player' || ship.role !== 'fighter') continue
+      const index = ship.bay === null || ship.bay < 0 || ship.bay >= bayCount ? 0 : ship.bay
+      counts[index] += 1
+    }
+    return counts
+  }
+
   get rivalCount(): number {
-    return this.ships.filter(ship => ship.side === 'rival').length
+    return this.ships.filter(ship => ship.side === 'rival' && ship.role !== 'corvette').length
+  }
+
+  get corvetteCount(): number {
+    return this.ships.filter(ship => ship.role === 'corvette').length
   }
 
   spawn(side: Side, world: MinerWorld): void {
@@ -71,8 +88,9 @@ export class Miners {
     else engageNearest(ship, world)
   }
 
-  spawnFighter(world: MinerWorld, craft: ShipState['craft'], hullHealth: number | null): void {
+  spawnFighter(world: MinerWorld, craft: ShipState['craft'], hullHealth: number | null, bay: number): void {
     const ship = this.make('player', 'fighter', world)
+    ship.bay = bay
     ship.craft = craft
     const health = hullHealth ?? world.fighterUpgrades.health(world.config)
     ship.health = health
@@ -82,12 +100,83 @@ export class Miners {
     huntNearest(ship, this.ships, world)
   }
 
-  /** Buying enemy health adds that step to every rival already on the field. */
+  /** The stationary defense turret, if one is standing. */
+  platform(): ShipState | undefined {
+    return this.ships.find(ship => ship.role === 'platform')
+  }
+
+  /** One defense platform, parked beside the player base. */
+  spawnPlatform(world: MinerWorld, health: number): void {
+    if (this.platform()) return
+    const ship = this.make('player', 'platform', world)
+    const spot = platformAnchor(world.config)
+    ship.x = spot.x
+    ship.y = spot.y
+    ship.health = health
+    ship.maxHealth = health
+    ship.mode = 'wait'
+    this.ships.push(ship)
+  }
+
+  /** Creep right from the base. Just short of a third of the map it stays put, and it never shoves other ships. */
+  driftPlatform(dtMs: number, world: MinerWorld): void {
+    const ship = this.platform()
+    if (!ship) return
+    const lane = platformAnchor(world.config)
+    const stop = platformStop(world.config)
+    const step = world.config.defense.speed * (dtMs / 1000)
+    ship.x = ship.x < stop ? Math.min(stop, ship.x + step) : stop
+    ship.y = lane.y
+    ship.mode = 'wait'
+    ship.targetId = null
+    ship.cargo = 0
+    ship.cargoValue = 0
+  }
+
+  /** Buying platform health adds that step to the one already standing. */
+  raisePlatformHealth(added: number, nextMax: number): void {
+    const ship = this.platform()
+    if (!ship) return
+    ship.health += added
+    ship.maxHealth = nextMax
+  }
+
+  /** One enemy corvette, at the rival base, with the current corvette health. */
+  spawnCorvette(world: MinerWorld): void {
+    const ship = this.make('rival', 'corvette', world)
+    const health = world.corvetteUpgrades.health(world.config)
+    ship.health = health
+    ship.maxHealth = health
+    ship.missiles = world.corvetteUpgrades.hasMissiles()
+    this.ships.push(ship)
+    this.clearOverlap(world)
+    huntNearest(ship, this.ships, world)
+  }
+
+  /** Buying enemy health adds that step to every rival fighter already on the field. */
   raiseRivalHealth(added: number, nextMax: number): void {
     for (const ship of this.ships) {
-      if (ship.side !== 'rival') continue
+      if (ship.side !== 'rival' || ship.role === 'corvette') continue
       ship.maxHealth = nextMax
       ship.health = Math.min(nextMax, ship.health + added)
+    }
+  }
+
+  /** Buying corvette health adds that step to every corvette already on the field. */
+  raiseCorvetteHealth(added: number, nextMax: number): void {
+    for (const ship of this.ships) {
+      if (ship.role !== 'corvette') continue
+      ship.maxHealth = nextMax
+      ship.health = Math.min(nextMax, ship.health + added)
+    }
+  }
+
+  /** Buying the missile fits that weapon onto every corvette already on the field. */
+  armCorvetteMissiles(): void {
+    for (const ship of this.ships) {
+      if (ship.role !== 'corvette' || ship.missiles) continue
+      ship.missiles = true
+      ship.missileCooldownMs = 0
     }
   }
 
@@ -103,6 +192,20 @@ export class Miners {
   locate(id: string): { x: number; y: number } | undefined {
     const ship = this.ships.find(item => item.id === id)
     return ship ? { x: ship.x, y: ship.y } : undefined
+  }
+
+  /** Closest ship of the other side. A missile locks onto it when its target is gone. */
+  nearestOpposite(side: Side, origin: { x: number; y: number }): { id: string; x: number; y: number } | undefined {
+    let best: { id: string; x: number; y: number } | undefined
+    let bestDist = Infinity
+    for (const ship of this.ships) {
+      if (ship.side === side) continue
+      const dist = Math.hypot(ship.x - origin.x, ship.y - origin.y)
+      if (dist >= bestDist) continue
+      best = { id: ship.id, x: ship.x, y: ship.y }
+      bestDist = dist
+    }
+    return best
   }
 
   /** Ships of the other side inside `range` of `origin`. */
@@ -124,8 +227,15 @@ export class Miners {
     if (ship.health > 0) return
     this.ships = this.ships.filter(item => item.id !== id)
     if (ship.side === 'rival' && bounty) {
-      const factor = world.enemyUpgrades.bountyMultiplier(world.config)
-      world.bank.deposit(Math.round(world.config.fighter.bounty * factor))
+      if (ship.role === 'corvette') {
+        world.bank.deposit(world.config.corvette.bounty)
+        const crystals = world.config.corvette.crystal * (world.corvetteUpgrades.hasMissiles() ? 2 : 1)
+        world.gainCrystal(crystals)
+        if (ship.missiles) world.noteMissileCorvette()
+      } else {
+        const factor = world.enemyUpgrades.bountyMultiplier(world.config)
+        world.bank.deposit(Math.round(world.config.fighter.bounty * factor))
+      }
     }
     for (const other of this.ships) {
       if (other.targetId === id) release(other, this.ships, world)
@@ -159,14 +269,17 @@ export class Miners {
   /** After movement and spawns: idle miners pick up work, and once a second every miner is checked. */
   finishStep(dtMs: number, world: MinerWorld): void {
     for (const ship of this.ships) {
-      if (ship.mode !== 'wait') continue
+      if (ship.role === 'platform' || ship.mode !== 'wait') continue
       if (fights(ship, world)) huntNearest(ship, this.ships, world)
       else engageNearest(ship, world)
     }
     this.dutyMs += dtMs
     if (this.dutyMs < DUTY_MS) return
     this.dutyMs -= DUTY_MS
-    for (const ship of this.ships) ensureDuty(ship, this.ships, world)
+    for (const ship of this.ships) {
+      if (ship.role === 'platform') continue
+      ensureDuty(ship, this.ships, world)
+    }
   }
 
   scene(world: MinerWorld): { id: string; x: number; y: number; carrying: boolean; heading: number; side: Side; role: ShipRole; health: number; maxHealth: number; hull: HullCell[] | null }[] {
@@ -180,9 +293,13 @@ export class Miners {
       role: ship.role,
       health: ship.health,
       maxHealth: ship.maxHealth,
-      hull: ship.craft !== null && ship.craft.cells.length > 0
-        ? ship.craft.cells.map(cell => ({ ...cell }))
-        : ShipDesign.minerHull(world.config),
+      hull: ship.role === 'platform'
+        ? null
+        : ship.role === 'corvette'
+        ? corvetteHull(ship.missiles)
+        : ship.craft !== null && ship.craft.cells.length > 0
+          ? ship.craft.cells.map(cell => ({ ...cell }))
+          : ShipDesign.minerHull(world.config),
     }))
   }
 
@@ -201,7 +318,12 @@ export class Miners {
 
   /** Ships that share a map cell are pushed until their bodies no longer overlap. */
   private clearOverlap(world: MinerWorld): void {
-    separateShips(this.ships, world.config.map.cell, world.config.ships.radius, world.config.map)
+    separateShips(
+      this.ships.filter(ship => ship.role !== 'platform'),
+      world.config.map.cell,
+      world.config.ships.radius,
+      world.config.map,
+    )
   }
 
   /** Drop a haul and look for a fight. Automine does not call the rival fleet home. */
@@ -255,6 +377,10 @@ export class Miners {
       mode: 'wait',
       targetId: null,
       fireCooldownMs: 0,
+      missiles: false,
+      missileCooldownMs: 0,
+      cannonSide: 0,
+      bay: null,
       side,
       role,
       health,

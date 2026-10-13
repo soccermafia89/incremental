@@ -1,10 +1,12 @@
 import type { GameConfig } from '../../data/GameConfig'
 import { WEAPON_UPGRADE_IDS, blankWeaponLevels, type WeaponLevels, type WeaponUpgradeId } from '../../data/weapons/upgrades'
-import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
+import { upgradeCrystal, upgradeMaxed, upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 
 export interface WeaponStats {
   values: WeaponLevels
   costs: Record<WeaponUpgradeId, number | null>
+  /** True when the next purchase of that upgrade spends crystals. */
+  crystals: Record<WeaponUpgradeId, boolean>
 }
 
 /** Purchases that change the designed laser and missile. */
@@ -31,12 +33,16 @@ export class WeaponUpgrades {
     return upgradeValue(config.weaponUpgrades[upgrade], this.purchased[upgrade])
   }
 
+  paysCrystals(upgrade: WeaponUpgradeId, config: GameConfig): boolean {
+    return upgradeCrystal(config.weaponUpgrades[upgrade], this.purchased[upgrade])
+  }
+
   price(upgrade: WeaponUpgradeId, config: GameConfig): number {
     return upgradePrice(config.weaponUpgrades[upgrade], this.purchased[upgrade])
   }
 
   maxed(upgrade: WeaponUpgradeId, config: GameConfig): boolean {
-    return this.value(upgrade, config) >= config.weaponUpgrades[upgrade].max
+    return upgradeMaxed(config.weaponUpgrades[upgrade], this.purchased[upgrade])
   }
 
   upgrade(upgrade: WeaponUpgradeId): void {
@@ -46,11 +52,13 @@ export class WeaponUpgrades {
   stats(config: GameConfig): WeaponStats {
     const values = {} as WeaponStats['values']
     const costs = {} as WeaponStats['costs']
+    const crystals = {} as WeaponStats['crystals']
     for (const id of WEAPON_UPGRADE_IDS) {
       values[id] = this.value(id, config)
       costs[id] = this.maxed(id, config) ? null : this.price(id, config)
+      crystals[id] = this.paysCrystals(id, config)
     }
-    return { values, costs }
+    return { values, costs, crystals }
   }
 
   /** How far a laser reaches. The part's range before any purchase. */
@@ -90,7 +98,9 @@ export class WeaponUpgrades {
   }
 }
 
-function ratedInterval(spec: { baseMs: number; start: number }, rate: number, guns: number): number {
-  if (guns <= 0 || rate <= 0) return spec.baseMs
-  return Math.max(1, Math.round(spec.baseMs * spec.start / rate / guns))
+function ratedInterval(spec: { baseMs?: number; levels: { value: number }[] }, rate: number, guns: number): number {
+  const baseMs = spec.baseMs ?? 1
+  const start = spec.levels[0]?.value ?? 1
+  if (guns <= 0 || rate <= 0) return baseMs
+  return Math.max(1, Math.round(baseMs * start / rate / guns))
 }

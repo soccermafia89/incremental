@@ -1,10 +1,14 @@
 import type { MapScene } from '../../core/game/Game'
-import type { HullCell } from '../../core/miner'
+import type { HullCell, ShipRole } from '../../core/miner'
 import { Base } from './Base'
+import { Hull } from './Hull'
+import { PlatformMark } from './PlatformMark'
 import { SHIP_MARK, ShipMark } from './ShipMark'
 
 /** Longest side of a designed hull. Same span as the stock fighter dart. */
 const HULL_EXTENT = SHIP_MARK.fighter.width
+/** Longest side of a corvette. Two and a half times a fighter. */
+const CORVETTE_EXTENT = HULL_EXTENT * 2.5
 
 const STARS: readonly (readonly [number, number])[] = [
   [120, 48], [210, 140], [260, 520], [340, 80], [480, 200],
@@ -133,7 +137,9 @@ export function MapView({ scene }: { scene: MapScene }) {
       ))}
 
       {scene.ships.map(ship => {
-        const drawn = ship.hull && ship.hull.length > 0 ? hullBox(ship.hull) : stockBox(ship.role)
+        const drawn = ship.hull && ship.hull.length > 0
+          ? hullBox(ship.hull, ship.role === 'corvette' ? CORVETTE_EXTENT : HULL_EXTENT)
+          : stockBox(ship.role)
         return (
           <div
             key={ship.id}
@@ -171,9 +177,15 @@ export function MapView({ scene }: { scene: MapScene }) {
                 }} />
               </div>
             )}
-            {ship.hull && ship.hull.length > 0 ? (
-              <Hull cells={ship.hull} heading={ship.heading} />
-            ) : (
+            {ship.role === 'platform' ? (
+              <PlatformMark />
+            ) : ship.hull && ship.hull.length > 0 ? (
+              <Hull
+                cells={ship.hull}
+                heading={ship.heading}
+                extent={ship.role === 'corvette' ? CORVETTE_EXTENT : HULL_EXTENT}
+              />
+            ) : ship.role === 'corvette' ? null : (
               <div style={{
                 position: 'absolute',
                 left: drawn.left,
@@ -189,7 +201,7 @@ export function MapView({ scene }: { scene: MapScene }) {
   )
 }
 
-function ShotGlyph({ shot }: { shot: { id: string; x: number; y: number; side: 'player' | 'rival'; splash: boolean; mining: boolean; angle: number } }) {
+function ShotGlyph({ shot }: { shot: { id: string; x: number; y: number; side: 'player' | 'rival'; splash: boolean; mining: boolean; heavy: boolean; angle: number } }) {
   const color = shot.side === 'rival' ? '#fca5a5' : shot.splash ? '#e879f9' : '#fef08a'
   if (shot.mining) {
     const length = 18
@@ -208,6 +220,24 @@ function ShotGlyph({ shot }: { shot: { id: string; x: number; y: number; side: '
           boxShadow: `0 0 6px ${beam}`,
           transformOrigin: '0 50%',
           transform: `rotate(${shot.angle}rad)`,
+        }}
+      />
+    )
+  }
+  if (shot.heavy) {
+    return (
+      <div
+        data-shot={shot.id}
+        data-shot-kind="platform"
+        style={{
+          position: 'absolute',
+          left: shot.x - 6,
+          top: shot.y - 6,
+          width: 12,
+          height: 12,
+          borderRadius: 12,
+          backgroundColor: '#e0f2fe',
+          boxShadow: '0 0 6px #22d3ee',
         }}
       />
     )
@@ -231,17 +261,18 @@ function ShotGlyph({ shot }: { shot: { id: string; x: number; y: number; side: '
       />
     )
   }
+  const size = shot.side === 'player' ? 3 : 5
   return (
     <div
       data-shot={shot.id}
       data-shot-kind="gun"
       style={{
         position: 'absolute',
-        left: shot.x - 2,
-        top: shot.y - 2,
-        width: 5,
-        height: 5,
-        borderRadius: 5,
+        left: shot.x - size / 2,
+        top: shot.y - size / 2,
+        width: size,
+        height: size,
+        borderRadius: size,
         backgroundColor: color,
       }}
     />
@@ -304,17 +335,21 @@ function beamColor(laser: { side: 'player' | 'rival'; source: 'cannon' | 'laser'
   return laser.side === 'rival' ? '#fca5a5' : '#fef08a'
 }
 
-function stockBox(role: 'miner' | 'fighter'): { left: number; top: number; width: number; height: number } {
+function stockBox(role: ShipRole): { left: number; top: number; width: number; height: number } {
+  if (role === 'platform') return { left: -20, top: -20, width: 40, height: 40 }
+  if (role === 'corvette') {
+    return { left: -CORVETTE_EXTENT / 2, top: -CORVETTE_EXTENT / 2, width: CORVETTE_EXTENT, height: CORVETTE_EXTENT }
+  }
   const mark = SHIP_MARK[role]
   return { left: -mark.width / 2, top: -mark.height / 2, width: mark.width, height: mark.height }
 }
 
-function hullBox(cells: HullCell[]): { left: number; top: number; width: number; height: number; size: number } {
+function hullBox(cells: HullCell[], extent: number = HULL_EXTENT): { left: number; top: number; width: number; height: number; size: number } {
   const minX = Math.min(...cells.map(cell => cell.x))
   const maxX = Math.max(...cells.map(cell => cell.x))
   const minY = Math.min(...cells.map(cell => cell.y))
   const maxY = Math.max(...cells.map(cell => cell.y))
-  const size = HULL_EXTENT / Math.max(maxX - minX + 1, maxY - minY + 1)
+  const size = extent / Math.max(maxX - minX + 1, maxY - minY + 1)
   return {
     left: minX * size - size / 2,
     top: minY * size - size / 2,
@@ -324,40 +359,7 @@ function hullBox(cells: HullCell[]): { left: number; top: number; width: number;
   }
 }
 
-function Hull({ cells, heading }: { cells: HullCell[]; heading: number }) {
-  const box = hullBox(cells)
-  return (
-    <div
-      data-ship-hull=""
-      style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        width: 0,
-        height: 0,
-        transform: `rotate(${heading + Math.PI / 2}rad)`,
-        transformOrigin: '0 0',
-      }}
-    >
-      {cells.map(cell => (
-        <span
-          key={`${cell.x},${cell.y}`}
-          data-hull-cell={`${cell.x},${cell.y}`}
-          style={{
-            position: 'absolute',
-            left: cell.x * box.size - box.size / 2,
-            top: cell.y * box.size - box.size / 2,
-            width: box.size,
-            height: box.size,
-            backgroundColor: cell.color,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function hullColor(ship: { side: 'player' | 'rival'; role: 'miner' | 'fighter' }): string {
+function hullColor(ship: { side: 'player' | 'rival'; role: ShipRole }): string {
   if (ship.side === 'rival') return '#ef4444'
   if (ship.role === 'fighter') return '#38bdf8'
   return '#e2e8f0'

@@ -4,7 +4,6 @@ import {
   parseUpgradeRows,
   type UpgradeSpec,
 } from '../upgradeSpec'
-import { mapping, requireInt } from '../number'
 
 export const WEAPON_UPGRADE_IDS = ['cannonFireRate', 'cannonDamage', 'laserRange', 'laserEnergy', 'missileFireRate', 'missileDamage'] as const
 export type WeaponUpgradeId = (typeof WEAPON_UPGRADE_IDS)[number]
@@ -21,25 +20,10 @@ export const WEAPON_FIELDS = {
 
 export type WeaponLevels = Record<WeaponUpgradeId, number>
 export type WeaponSavedLevels = { [Id in WeaponUpgradeId as (typeof WEAPON_FIELDS)[Id]]: number }
-export type WeaponUpgradeTable = {
-  [Id in WeaponUpgradeId]: Id extends 'missileFireRate' | 'cannonFireRate' ? UpgradeSpec & { baseMs: number } : UpgradeSpec
-}
+export type WeaponUpgradeTable = Record<WeaponUpgradeId, UpgradeSpec>
 
 export function parseWeaponUpgrades(raw: unknown): WeaponUpgradeTable {
-  const table = parseUpgradeRows(raw, WEAPON_UPGRADE_IDS, 'weaponUpgrades')
-  const row = mapping(raw, 'weaponUpgrades')
-  return {
-    ...table,
-    cannonFireRate: { ...table.cannonFireRate, baseMs: readBaseMs(row, 'cannonFireRate') },
-    missileFireRate: { ...table.missileFireRate, baseMs: readBaseMs(row, 'missileFireRate') },
-  }
-}
-
-function readBaseMs(row: Record<string, unknown>, id: 'cannonFireRate' | 'missileFireRate'): number {
-  const spec = mapping(row[id], `weaponUpgrades.${id}`)
-  const baseMs = requireInt(spec.baseMs, `weaponUpgrades.${id}.baseMs`)
-  if (baseMs < 1) throw new Error(`weaponUpgrades.${id}.baseMs must be at least 1`)
-  return baseMs
+  return parseUpgradeRows(raw, WEAPON_UPGRADE_IDS, 'weaponUpgrades')
 }
 
 export function blankWeaponLevels(): WeaponLevels {

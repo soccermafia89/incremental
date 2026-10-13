@@ -1,40 +1,65 @@
-# How fast destroyed enemy miners return. Rate 1 is replenishMs.
-# Each purchase doubles the rate, so the wait halves. Max is the last of those rates.
-# The first purchase costs `cost`, then the price doubles. bounty 1 leaves the payout unchanged.
+# Opposing fighters. `bounty` multiplies the payout once for each purchase of that row.
+# Spawn rate doubles down the table. The first capacity purchase sets the fleet to 10.
+# Later capacity rows add the difference to the live cap.
 spawnRate:
-  start: 1
-  step: 1
-  max: 128
-  cost: 20
   bounty: 1
-# The first purchase sets the fleet cap to `start`. Each later purchase adds `step`.
-# Before any purchase the cap starts at 1, then the miner and golden bonuses multiply it.
-# The first purchase costs `cost`, then the price doubles.
-# Each purchase also multiplies destroyed-ship payout by `bounty`. Those factors compound.
+  levels:
+    - value: 1
+      cost: 800
+    - value: 2
+      cost: 1600
+    - value: 4
+      cost: 3200
+    - value: 8
+      cost: 6400
+    - value: 16
+      cost: 12800
+    - value: 32
+      cost: 25600
+    - value: 64
+      cost: 51200
+    - value: 128
 capacity:
-  start: 10
-  step: 5
-  max: 30
-  cost: 5
   bounty: 1.3
-# Rival ship health. Start matches ships.health. Each purchase also multiplies the bounty.
+  levels:
+    - value: 1
+      cost: 500
+    - value: 10
+      cost: 1000
+    - value: 15
+      cost: 2000
+    - value: 20
+      cost: 4000
+    - value: 25
+      cost: 8000
+    - value: 30
 health:
-  start: 20
-  step: 10
-  max: 60
-  cost: 20
   bounty: 1.3
-# Rival shot damage before golden asteroids. Golden still scales this.
+  levels:
+    - value: 20
+      cost: 500
+    - value: 40
+      cost: 1000
+    - value: 60
+      cost: 2000
+    - value: 80
 damage:
-  start: 1
-  step: 1
-  max: 10
-  cost: 20
   bounty: 1.3
-# Rate 1 is one shot every 4 seconds, four times ships.shotIntervalMs. Higher rates shorten it. Golden still speeds it up.
+  levels:
+    - value: 1
+      cost: 500
+    - value: 2
+      cost: 1000
+    - value: 3
+      cost: 2000
+    - value: 4
 attackRate:
-  start: 1
-  step: 1
-  max: 4
-  cost: 20
   bounty: 1.3
+  levels:
+    - value: 1
+      cost: 500
+    - value: 2
+      cost: 1000
+    - value: 3
+      cost: 2000
+    - value: 4

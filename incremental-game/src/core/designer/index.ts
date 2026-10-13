@@ -11,6 +11,7 @@ export {
   type DesignResult,
   type DesignerCell,
   type DesignerScene,
+  type NamedDesign,
   type PlacedPart,
   type WeaponMods,
   type Rotation,

@@ -1,4 +1,5 @@
-import { mapping, requireInt } from '../number'
+import { mapping, requireInt, requireNumber } from '../number'
+import { parseUpgradeRows, type UpgradeSpec } from '../upgradeSpec'
 
 export const COMPONENT_IDS = ['structural', 'armor', 'weapon', 'laser', 'missile', 'thruster', 'mediumEngine', 'largeEngine', 'energy', 'minerLaser'] as const
 export type ComponentId = (typeof COMPONENT_IDS)[number]
@@ -59,12 +60,22 @@ export interface WeaponUnlock {
   cost: number
 }
 
+export interface MissileUnlock {
+  crystal: number
+}
+
 export interface DesignerConfig {
   cost: number
   half: number
   /** Damage of one weapon that has energy left to spend. */
   weaponDamage: number
-  weapons: Record<WeaponUnlockId, WeaponUnlock>
+  /** Crystal cost of each extra production bay, in unlock order. The first bay is free. */
+  bays: number[]
+  /** Per-bay build rate. `scale` of the fighter rate, then `bonus` for each money purchase. */
+  bayProduction: UpgradeSpec & { scale: number; bonus: number }
+  /** Ships an extra bay keeps. The first row is included in the unlock. */
+  bayCapacity: UpgradeSpec
+  weapons: { laser: WeaponUnlock; missile: MissileUnlock }
   engines: Record<EngineUnlockId, WeaponUnlock>
   core: { weight: number; health: number; mounts: Side[] }
   components: Record<ComponentId, ComponentSpec>
@@ -94,11 +105,37 @@ export function parseDesigner(raw: unknown): DesignerConfig {
     cost,
     half,
     weaponDamage,
-    weapons: parseUnlocks(row.weapons, WEAPON_UNLOCK_IDS, 'designer.weapons'),
+    bays: parseBayCosts(row.bays),
+    bayProduction: parseBayProduction(row.bayProduction),
+    bayCapacity: parseBayCapacity(row.bayCapacity),
+    weapons: parseWeapons(row.weapons),
     engines: parseUnlocks(row.engines, ENGINE_UNLOCK_IDS, 'designer.engines'),
     core: parseCore(row.core),
     components: parseComponents(row.components),
   }
+}
+
+function parseBayProduction(raw: unknown): DesignerConfig['bayProduction'] {
+  const row = mapping(raw, 'designer.bayProduction')
+  const scale = requireNumber(row.scale, 'designer.bayProduction.scale')
+  const bonus = requireNumber(row.bonus, 'designer.bayProduction.bonus')
+  if (scale <= 0) throw new Error('designer.bayProduction.scale must be above 0')
+  if (bonus <= 0) throw new Error('designer.bayProduction.bonus must be above 0')
+  const table = parseUpgradeRows({ bayProduction: raw }, ['bayProduction'] as const, 'designer').bayProduction
+  return { ...table, scale, bonus }
+}
+
+function parseBayCapacity(raw: unknown): DesignerConfig['bayCapacity'] {
+  return parseUpgradeRows({ bayCapacity: raw }, ['bayCapacity'] as const, 'designer').bayCapacity
+}
+
+function parseBayCosts(raw: unknown): number[] {
+  if (!Array.isArray(raw)) throw new Error('designer.bays must be a list')
+  return raw.map((item, index) => {
+    const cost = requireInt(item, `designer.bays[${index}]`)
+    if (cost < 1) throw new Error(`designer.bays[${index}] must be at least 1`)
+    return cost
+  })
 }
 
 function parseComponents(raw: unknown): Record<ComponentId, ComponentSpec> {
@@ -112,6 +149,22 @@ function parseComponents(raw: unknown): Record<ComponentId, ComponentSpec> {
     components[id] = parseComponent(row[id], `designer.components.${id}`, id)
   }
   return components
+}
+
+function parseWeapons(raw: unknown): DesignerConfig['weapons'] {
+  const row = mapping(raw, 'designer.weapons')
+  for (const key of Object.keys(row)) {
+    if (key !== 'laser' && key !== 'missile') throw new Error(`designer.weapons.${key} is unknown`)
+  }
+  if (!('laser' in row)) throw new Error('designer.weapons.laser is missing')
+  if (!('missile' in row)) throw new Error('designer.weapons.missile is missing')
+  const laser = mapping(row.laser, 'designer.weapons.laser')
+  const missile = mapping(row.missile, 'designer.weapons.missile')
+  const cost = requireInt(laser.cost, 'designer.weapons.laser.cost')
+  const crystal = requireInt(missile.crystal, 'designer.weapons.missile.crystal')
+  if (cost < 1) throw new Error('designer.weapons.laser.cost must be at least 1')
+  if (crystal < 1) throw new Error('designer.weapons.missile.crystal must be at least 1')
+  return { laser: { cost }, missile: { crystal } }
 }
 
 function parseUnlocks<Id extends string>(raw: unknown, ids: readonly Id[], label: string): Record<Id, WeaponUnlock> {

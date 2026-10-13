@@ -1,0 +1,35 @@
+# Capacity is one money purchase. The other rows spend crystals.
+capacity:
+  - value: 0
+    cost: 4000
+  - value: 1
+health:
+  crystal: true
+  levels:
+    - value: 2000
+      cost: 5
+    - value: 3000
+      cost: 10
+    - value: 4000
+      cost: 20
+    - value: 5000
+attackRate:
+  crystal: true
+  levels:
+    - value: 1
+      cost: 5
+    - value: 2
+      cost: 10
+    - value: 3
+      cost: 20
+    - value: 4
+damage:
+  crystal: true
+  levels:
+    - value: 120
+      cost: 5
+    - value: 180
+      cost: 10
+    - value: 240
+      cost: 20
+    - value: 300

@@ -2,19 +2,20 @@ import type { GameConfig } from '../../data/GameConfig'
 import { loadGameConfig } from '../../data/GameConfig'
 import { isGunId } from '../../data/designer'
 import { mapping, requireNumber } from '../../data/number'
+import { CORVETTE_FIELDS, CORVETTE_UPGRADE_IDS } from '../../data/corvette/upgrades'
+import { DEFENSE_FIELDS, DEFENSE_UPGRADE_IDS } from '../../data/defense/upgrades'
 import { ENEMY_FIELDS, ENEMY_UPGRADE_IDS } from '../../data/enemy/upgrades'
 import { FIGHTER_FIELDS, FIGHTER_UPGRADE_IDS } from '../../data/fighter/upgrades'
 import { MINING_FIELDS, MINING_IDS } from '../../data/mining'
 import { LEVEL_FIELDS, UPGRADE_IDS } from '../../data/upgrades'
 import { WEAPON_FIELDS, WEAPON_UPGRADE_IDS } from '../../data/weapons/upgrades'
 import type { AsteroidKind, AsteroidState } from '../asteroid/AsteroidField'
-import type { MapState } from '../game/state'
+import type { MapState, ProductionBay, ProductionDesign } from '../game/state'
 import { GameImpl } from '../game/Game'
 import { SHIP_MODES, SHIP_ROLES, type HullCell, type ShipMode, type ShipRole, type ShipState, type Side } from '../miner'
 import type { OreState } from '../ore/OreField'
 import type { ShotState } from '../shot/Shot'
-import { readParts, type PlacedPart } from '../designer'
-import type { ProductionDesign } from '../game/state'
+import { readParts, type NamedDesign, type PlacedPart } from '../designer'
 import { SAVE_FORMAT_VERSION } from './GameSnapshot'
 
 export class GameDeserializer {
@@ -30,6 +31,7 @@ export class GameDeserializer {
     }
     const state: MapState = {
       money: count(row.money, 'money'),
+      crystals: count(row.crystals, 'crystals'),
       spawnAccumulatorMs: count(row.spawnAccumulatorMs, 'spawnAccumulatorMs'),
       rngState: count(row.rngState, 'rngState'),
       goldenSpawnAccumulatorMs: count(row.goldenSpawnAccumulatorMs, 'goldenSpawnAccumulatorMs'),
@@ -42,11 +44,19 @@ export class GameDeserializer {
       miningLevels: readLevels(row, MINING_IDS, MINING_FIELDS),
       fighterLevels: readLevels(row, FIGHTER_UPGRADE_IDS, FIGHTER_FIELDS),
       enemyLevels: readLevels(row, ENEMY_UPGRADE_IDS, ENEMY_FIELDS),
+      corvetteLevels: readLevels(row, CORVETTE_UPGRADE_IDS, CORVETTE_FIELDS),
+      corvette: flag(row.corvette, 'corvette'),
+      corvetteElapsedMs: count(row.corvetteElapsedMs, 'corvetteElapsedMs'),
+      defenseLevels: readLevels(row, DEFENSE_UPGRADE_IDS, DEFENSE_FIELDS),
+      defenseElapsedMs: count(row.defenseElapsedMs, 'defenseElapsedMs'),
       weaponLevels: readLevels(row, WEAPON_UPGRADE_IDS, WEAPON_FIELDS),
       tractorBeam: flag(row.tractorBeam, 'tractorBeam'),
       golden: flag(row.golden, 'golden'),
       miningUnlocked: flag(row.miningUnlocked, 'miningUnlocked'),
       automine: flag(row.automine, 'automine'),
+      automineElapsedMs: count(row.automineElapsedMs, 'automineElapsedMs'),
+      moneyConverter: flag(row.moneyConverter, 'moneyConverter'),
+      missileCorvetteKilled: flag(row.missileCorvetteKilled, 'missileCorvetteKilled'),
       shipDesigner: flag(row.shipDesigner, 'shipDesigner'),
       laser: flag(row.laser, 'laser'),
       missile: flag(row.missile, 'missile'),
@@ -55,15 +65,18 @@ export class GameDeserializer {
       parts: readParts(row.parts),
       nextPartId: positiveInt(row.nextPartId, 'nextPartId'),
       savedDesign: readSavedDesign(row.savedDesign),
-      productionDesign: readProduction(row.productionDesign),
+      designs: readDesigns(row.designs),
+      bays: readBays(row.bays),
       pendingMiners: nonNegativeInt(row.pendingMiners, 'pendingMiners'),
       minerWork: count(row.minerWork, 'minerWork'),
-      pendingFighters: nonNegativeInt(row.pendingFighters, 'pendingFighters'),
-      fighterWork: count(row.fighterWork, 'fighterWork'),
+      minerReady: nonNegativeInt(row.minerReady, 'minerReady'),
+      fighterQueue: list(row.fighterQueue, 'fighterQueue').map((item, index) => readProduction(item, `fighterQueue[${index}]`)),
+      platformReady: nonNegativeInt(row.platformReady, 'platformReady'),
       rivalCap: positiveInt(row.rivalCap, 'rivalCap'),
       rivalElapsedMs: count(row.rivalElapsedMs, 'rivalElapsedMs'),
       fleetAnswered: flag(row.fleetAnswered, 'fleetAnswered'),
       gift: positiveInt(row.gift, 'gift'),
+      crystalGift: positiveInt(row.crystalGift, 'crystalGift'),
       baseCombat: flag(row.baseCombat, 'baseCombat'),
       rivalCombat: flag(row.rivalCombat, 'rivalCombat'),
     }
@@ -71,9 +84,38 @@ export class GameDeserializer {
   }
 }
 
-function readProduction(raw: unknown): ProductionDesign {
-  if (raw === 'fighter' || raw === 'saved') return raw
-  throw new Error('productionDesign is invalid')
+function readBays(raw: unknown): ProductionBay[] {
+  const rows = list(raw, 'bays')
+  if (rows.length < 1) throw new Error('bays is empty')
+  return rows.map((item, index) => {
+    const row = mapping(item, `bays[${index}]`)
+    return {
+      design: readProduction(row.design, `bays[${index}].design`),
+      pending: nonNegativeInt(row.pending, `bays[${index}].pending`),
+      work: count(row.work, `bays[${index}].work`),
+      production: nonNegativeInt(row.production, `bays[${index}].production`),
+      capacity: nonNegativeInt(row.capacity, `bays[${index}].capacity`),
+    }
+  })
+}
+
+function readProduction(raw: unknown, label = 'productionDesign'): ProductionDesign {
+  if (raw === 'fighter' || (typeof raw === 'string' && /^ship[1-9]\d*$/.test(raw))) return raw
+  throw new Error(`${label} is invalid`)
+}
+
+function readDesigns(raw: unknown): NamedDesign[] {
+  return list(raw, 'designs').map((item, index) => {
+    const row = mapping(item, `designs[${index}]`)
+    const name = textName(row.name, `designs[${index}].name`)
+    if (name !== `ship${index + 1}`) throw new Error(`designs[${index}].name is invalid`)
+    return { name, parts: readParts(row.parts, `designs[${index}].parts`) }
+  })
+}
+
+function textName(value: unknown, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) throw new Error(`${label} is invalid`)
+  return value
 }
 
 function readSavedDesign(raw: unknown): PlacedPart[] | null {
@@ -130,6 +172,7 @@ function shot(raw: unknown, index: number): ShotState {
     cannon: flag(row.cannon, `${label}.cannon`),
     splash: flag(row.splash, `${label}.splash`),
     mining: flag(row.mining, `${label}.mining`),
+    heavy: flag(row.heavy, `${label}.heavy`),
   }
 }
 
@@ -189,6 +232,16 @@ function readHull(raw: unknown, label: string): HullCell[] {
   })
 }
 
+function readShipBay(raw: unknown, label: string): number | null {
+  if (raw === null) return null
+  return nonNegativeInt(raw, label)
+}
+
+function readCannonSide(raw: unknown, label: string): 0 | 1 {
+  if (raw === 0 || raw === 1) return raw
+  throw new Error(`${label} is invalid`)
+}
+
 function ship(raw: unknown, index: number): ShipState {
   const label = `ships[${index}]`
   const row = mapping(raw, label)
@@ -207,6 +260,10 @@ function ship(raw: unknown, index: number): ShipState {
     mode: mode as ShipMode,
     targetId,
     fireCooldownMs: count(row.fireCooldownMs, `${label}.fireCooldownMs`),
+    missiles: flag(row.missiles, `${label}.missiles`),
+    missileCooldownMs: count(row.missileCooldownMs, `${label}.missileCooldownMs`),
+    cannonSide: readCannonSide(row.cannonSide, `${label}.cannonSide`),
+    bay: readShipBay(row.bay, `${label}.bay`),
     side: side(row.side, `${label}.side`),
     role: role(row.role, `${label}.role`),
     ...shipHealth(row, label),

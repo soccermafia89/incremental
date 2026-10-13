@@ -1,0 +1,17 @@
+# One purchase on the enemy page. The enemy then builds corvettes one at a time.
+cost: 5000
+# Paid when a ship destroys a corvette. A base cannon kill pays nothing.
+bounty: 500
+# Crystals paid with that bounty. A base cannon kill pays none.
+crystal: 1
+# Spawn rate 1 waits this long between corvettes. Each purchase halves the wait.
+spawnMs: 12500
+# Attack rate 1 waits this long between shots. Shots alternate port and starboard.
+# Each purchase shortens the wait.
+shotMs: 375
+# Speed 1 moves at this fraction of ships.speed.
+speedScale: 0.975
+# The cannon reaches this multiple of ships.weaponRange. Missiles keep their own range.
+rangeScale: 1.5
+# Direct hit of a corvette missile. The blast deals half of this to other ships.
+missileDamage: 160

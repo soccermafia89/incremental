@@ -1,0 +1,8 @@
+# One platform, built on this clock while the cap is empty.
+# rangeScale is a multiple of the base cannon's range.
+# shotMs is the wait at attack rate 1.
+# speed is pixels per second while it drifts from the base to just short of a third of the map.
+buildMs: 60000
+rangeScale: 1.125
+shotMs: 2000
+speed: 8

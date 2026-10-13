@@ -1,7 +1,7 @@
 import type { GameConfig } from '../../data/GameConfig'
 import type { EnemyLevels, EnemyUpgradeId } from '../../data/enemy/upgrades'
 import { ENEMY_UPGRADE_IDS, blankEnemyLevels } from '../../data/enemy/upgrades'
-import { upgradePrice, upgradeValue } from '../../data/upgradeSpec'
+import { upgradeMaxed, upgradePrice, upgradeValue } from '../../data/upgradeSpec'
 
 export interface EnemyStats {
   values: EnemyLevels
@@ -31,14 +31,7 @@ export class EnemyUpgrades {
   }
 
   value(upgrade: EnemyUpgradeId, config: GameConfig): number {
-    if (upgrade === 'spawnRate') return this.spawnRate(config)
     return upgradeValue(config.enemyUpgrades[upgrade], this.purchased[upgrade])
-  }
-
-  /** Rate 1, then double each purchase: 1, 2, 4, 8, and so on. */
-  private spawnRate(config: GameConfig): number {
-    const spec = config.enemyUpgrades.spawnRate
-    return spec.start * 2 ** this.purchased.spawnRate
   }
 
   price(upgrade: EnemyUpgradeId, config: GameConfig): number {
@@ -46,16 +39,7 @@ export class EnemyUpgrades {
   }
 
   maxed(upgrade: EnemyUpgradeId, config: GameConfig): boolean {
-    if (upgrade === 'capacity') return this.capacityMaxed(config)
-    return this.value(upgrade, config) >= config.enemyUpgrades[upgrade].max
-  }
-
-  /** Level 0 is unpurchased. Later levels are start, then start + step, up to max. */
-  private capacityMaxed(config: GameConfig): boolean {
-    const level = this.purchased.capacity
-    if (level === 0) return false
-    const spec = config.enemyUpgrades.capacity
-    return spec.start + (level - 1) * spec.step >= spec.max
+    return upgradeMaxed(config.enemyUpgrades[upgrade], this.purchased[upgrade])
   }
 
   upgrade(upgrade: EnemyUpgradeId): void {
@@ -66,7 +50,7 @@ export class EnemyUpgrades {
   bountyMultiplier(config: GameConfig): number {
     let factor = 1
     for (const id of ENEMY_UPGRADE_IDS) {
-      factor *= config.enemyUpgrades[id].bounty ** this.purchased[id]
+      factor *= (config.enemyUpgrades[id].bounty ?? 1) ** this.purchased[id]
     }
     return factor
   }
@@ -85,17 +69,21 @@ export class EnemyUpgrades {
     return this.value('health', config)
   }
 
-  /** Golden scales the upgraded damage by the same ratio it used on the old base damage. */
-  shotDamage(config: GameConfig, golden: boolean): number {
+  /**
+   * The upgrade value is the base. Golden and the tractor beam each multiply that whole
+   * number, and the shot uses the product.
+   */
+  shotDamage(config: GameConfig, golden: boolean, attacking: boolean): number {
     const base = this.value('damage', config)
-    if (!golden) return base
-    return Math.round(base * config.golden.rivalDamage / config.enemyUpgrades.damage.start)
+    const goldenBy = golden ? config.golden.rivalDamage / upgradeValue(config.enemyUpgrades.damage, 0) : 1
+    const attackBy = attacking ? 2 : 1
+    return Math.round(base * goldenBy * attackBy)
   }
 
   /** Rate 1 waits four shot intervals. Golden divides that wait again. */
   shotInterval(config: GameConfig, golden: boolean): number {
     const rate = this.value('attackRate', config)
-    const start = config.enemyUpgrades.attackRate.start
+    const start = upgradeValue(config.enemyUpgrades.attackRate, 0)
     const interval = Math.round(config.ships.shotIntervalMs * 4 * start / rate)
     return golden ? Math.round(interval / config.golden.rivalFire) : interval
   }
@@ -103,7 +91,7 @@ export class EnemyUpgrades {
   /** Rate 1 waits the full replenish interval. Each doubled rate cuts that wait in half. */
   replenishInterval(config: GameConfig): number {
     const rate = this.value('spawnRate', config)
-    const start = config.enemyUpgrades.spawnRate.start
+    const start = upgradeValue(config.enemyUpgrades.spawnRate, 0)
     return Math.round(config.rival.replenishMs * start / rate)
   }
 }
